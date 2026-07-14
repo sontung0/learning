@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spring Cloud Stream Content Type Reference</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta"><span class="lesson-number">Reference</span><span>Essential Features</span></div>
+    <h1>Content Type Negotiation</h1>
+    <p><em>Choose the conversion path deliberately.</em></p>
+  </div>
+  <table>
+    <thead><tr><th>Content type</th><th>Provided converter</th><th>Typical handler payload</th></tr></thead>
+    <tbody>
+      <tr><td><code>application/json</code> (default)</td><td>JSON converter</td><td>POJO</td></tr>
+      <tr><td><code>text/plain</code></td><td>Object/String converter</td><td><code>String</code></td></tr>
+      <tr><td><code>application/octet-stream</code></td><td>Byte-array converter</td><td><code>byte[]</code></td></tr>
+    </tbody>
+  </table>
+  <pre><code>spring:
+  cloud:
+    stream:
+      bindings:
+        inventoryConsumer-in-0:
+          content-type: application/json
+          consumer:
+            use-native-decoding: false</code></pre>
+  <p>Native decoding bypasses Spring Cloud Stream message conversion; <code>content-type</code> then does not drive inbound conversion.</p>
+  <p>Source: <a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/content-type.html" target="_blank">Spring Cloud Stream Content Type</a></p>
+</body>
+</html>

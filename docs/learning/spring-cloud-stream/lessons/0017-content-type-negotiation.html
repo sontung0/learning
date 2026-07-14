@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0017 • Content Type Negotiation</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0017</span>
+      <span>Essential Features • Phase 4</span>
+      <span>~8 min read</span>
+    </div>
+    <h1>Content Type Negotiation</h1>
+    <p><em>Let a producer and consumer agree on data meaning, not merely the bytes that crossed the broker.</em></p>
+  </div>
+  <h2>1. The Broker Carries Bytes; Your Function Needs a Type</h2>
+  <p>A binder typically exchanges a wire representation such as bytes. Your function is clearer when it receives a domain type:</p>
+  <pre><code>@Bean
+Consumer&lt;InventoryEvent&gt; inventoryConsumer() {
+    return event -&gt; reserveStock(event);
+}</code></pre>
+  <p>Content type negotiation chooses a <code>MessageConverter</code> that can transform the incoming payload into the function argument type. The content type is carried in a message header when available; a binding's <code>content-type</code> property supplies the contract when a producer does not provide usable metadata.</p>
+  <h2>2. JSON Is the Default Contract</h2>
+  <p>Spring Cloud Stream's default content type is <code>application/json</code>. Its JSON converter can turn a JSON payload into a POJO on input and turn a POJO into JSON on output. This makes a standard producer and consumer work without manual serialization code.</p>
+  <table>
+    <thead><tr><th>Content type</th><th>Converter intent</th><th>Useful handler type</th></tr></thead>
+    <tbody>
+      <tr><td><code>application/json</code></td><td>JSON to/from object</td><td>A domain POJO or record</td></tr>
+      <tr><td><code>text/plain</code></td><td>Object to/from text</td><td><code>String</code></td></tr>
+      <tr><td><code>application/octet-stream</code></td><td>Pass bytes through</td><td><code>byte[]</code></td></tr>
+    </tbody>
+  </table>
+  <div class="callout primary"><strong>Contract first:</strong> use <code>content-type</code> to state the payload format, not to describe the Java class. The target handler type tells the converter what object to construct.</div>
+  <h2>3. Set a Binding Contract When It Matters</h2>
+  <p>A binding-level setting is useful when the producer is external, the expected format is not JSON, or you want the contract explicit in configuration. It is configured alongside the destination and group from Lesson 0016.</p>
+  <pre><code>spring:
+  cloud:
+    function:
+      definition: inventoryConsumer
+    stream:
+      bindings:
+        inventoryConsumer-in-0:
+          destination: inventory-events
+          group: inventory-service
+          content-type: application/json</code></pre>
+  <p>A producer may set a message-level <code>contentType</code> header. That per-message metadata is more specific than a binding default, so use it only when one binding legitimately receives multiple documented formats.</p>
+  <h2>4. Native Serialization Is a Different Path</h2>
+  <p>When <code>use-native-decoding</code> is enabled on a consumer or <code>use-native-encoding</code> is enabled on a producer, the broker client library serializes or deserializes the payload. Spring Cloud Stream's <code>content-type</code>-based conversion is bypassed for that direction.</p>
+  <pre><code>spring:
+  cloud:
+    stream:
+      bindings:
+        inventoryConsumer-in-0:
+          consumer:
+            use-native-decoding: true</code></pre>
+  <div class="callout warning"><strong>Do not enable native conversion casually.</strong> It transfers responsibility for compatible serializers, deserializers, and payload format to the producer and consumer client configuration.</div>
+  <h2>5. Extend Conversion Only for a Real New Format</h2>
+  <p>The supplied converters cover JSON, text, and byte arrays. When an application genuinely owns another media type, register a <code>MessageConverter</code> bean that advertises that MIME type and supports the required target class. A custom converter is part of every producer-consumer compatibility contract.</p>
+  <h2>Assessment</h2>
+  <div class="callout success">
+    <strong>Retrieval Practice:</strong><br><br>
+    1. A broker delivers bytes, but your function accepts <code>InventoryEvent</code>. What component performs the transformation, and what two pieces of information guide it?<br><br>
+    2. What is Spring Cloud Stream's default content type, and which handler payload type naturally fits it?<br><br>
+    3. When would you configure <code>inventoryConsumer-in-0.content-type</code>, and when would a message-level <code>contentType</code> header be more specific?<br><br>
+    4. What changes when <code>use-native-decoding: true</code> is enabled, and who becomes responsible for compatible serialization?<br><br>
+    5. Name the supplied content types for JSON, text, and raw bytes. When is a custom <code>MessageConverter</code> justified?
+  </div>
+  <h2>Primary Sources</h2>
+  <ul>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/content-type.html" target="_blank">Spring Cloud Stream: Content Type</a></li>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/provided-messageconverters.html" target="_blank">Provided Message Converters</a></li>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/overview-user-defined-message-converters.html" target="_blank">User-defined Message Converters</a></li>
+  </ul>
+  <div class="lesson-nav">
+    <a href="0016-configuration-options.html">← Previous</a>
+    <a href="#">Next lesson → Inter-Application Communication (Coming Soon)</a>
+  </div>
+  <div class="reminder"><strong>Reminder:</strong> This agent is your teacher. Ask a followup question in chat if you want to trace exactly how one of your real payloads becomes a Java object.</div>
+</body>
+</html>
