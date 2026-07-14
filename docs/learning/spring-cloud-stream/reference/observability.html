@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spring Cloud Stream Observability Reference</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta"><span class="lesson-number">Reference</span><span>Essential Features</span></div>
+    <h1>Observability</h1>
+    <p><em>A quick guide to metrics, traces, and logs in message-driven services.</em></p>
+  </div>
+  <table>
+    <thead><tr><th>Signal</th><th>Question it answers</th><th>Typical tool</th></tr></thead>
+    <tbody>
+      <tr><td>Metric</td><td>Is the system healthy over time?</td><td>Micrometer and Actuator</td></tr>
+      <tr><td>Trace</td><td>Where did this one event travel?</td><td>Micrometer Tracing bridge</td></tr>
+      <tr><td>Log</td><td>What happened at a specific step?</td><td>Structured application log</td></tr>
+    </tbody>
+  </table>
+  <h2>Minimum Setup</h2>
+  <pre><code>&lt;dependency&gt;
+  &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+  &lt;artifactId&gt;spring-boot-starter-actuator&lt;/artifactId&gt;
+&lt;/dependency&gt;
+
+&lt;dependency&gt;
+  &lt;groupId&gt;io.micrometer&lt;/groupId&gt;
+  &lt;artifactId&gt;micrometer-tracing-bridge-brave&lt;/artifactId&gt;
+&lt;/dependency&gt;</code></pre>
+  <p>For the Kafka binder, enable observations explicitly:</p>
+  <pre><code>spring.cloud.stream.kafka.binder.enable-observation=true</code></pre>
+  <p>Source: <a href="https://docs.spring.io/spring-cloud-stream/reference/observability.html" target="_blank">Spring Cloud Stream Observability</a></p>
+</body>
+</html>

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0015 • Observability</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0015</span>
+      <span>Essential Features • Phase 4</span>
+      <span>~8 min read</span>
+    </div>
+    <h1>Observability</h1>
+    <p><em>See whether events are flowing, find a single event's path, and explain failures with evidence.</em></p>
+  </div>
+
+  <h2>1. A Message Is Not Observable Just Because It Was Logged</h2>
+  <p>Message-driven systems fail at a distance: a producer may be healthy while a consumer is slow, retrying, or unable to reach a dependency. Logs are useful evidence, but they are not enough to answer every operational question. Use three complementary signals.</p>
+  <table>
+    <thead><tr><th>Signal</th><th>Best question</th><th>Example</th></tr></thead>
+    <tbody>
+      <tr><td>Metrics</td><td>Is this binding healthy over time?</td><td>Rate, errors, latency, backlog or consumer lag.</td></tr>
+      <tr><td>Traces</td><td>Where did one event go?</td><td>Producer send, broker handoff, consumer processing.</td></tr>
+      <tr><td>Logs</td><td>What happened at this step?</td><td>Business ID, exception, and recovery decision.</td></tr>
+    </tbody>
+  </table>
+  <div class="callout primary"><strong>Operational habit:</strong> start from the question. A rising failure rate is a metrics question; a single missing order is a tracing question; the cause of a rejected event is a logging question.</div>
+
+  <h2>2. Micrometer Is the Common Vocabulary</h2>
+  <p>Spring Boot Actuator supplies the observability infrastructure, and Micrometer records observations so the same application can export metrics and traces to the systems your organization uses. Add Actuator before expecting useful operational endpoints or metric export.</p>
+  <pre><code>&lt;dependency&gt;
+  &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+  &lt;artifactId&gt;spring-boot-starter-actuator&lt;/artifactId&gt;
+&lt;/dependency&gt;
+
+&lt;dependency&gt;
+  &lt;groupId&gt;io.micrometer&lt;/groupId&gt;
+  &lt;artifactId&gt;micrometer-tracing-bridge-brave&lt;/artifactId&gt;
+&lt;/dependency&gt;</code></pre>
+  <p>The tracing bridge is what lets observations participate in distributed traces. Select the bridge/exporter that matches your deployment rather than treating the example as mandatory for every application.</p>
+
+  <h2>3. Follow One Event Across Boundaries</h2>
+  <p>When tracing is configured, propagation metadata travels with the message so downstream work can join the same trace. That lets an operator move from a request that created an event to the consumer that processed it, rather than correlating timestamps manually.</p>
+  <p>Make logs trace-friendly: log a stable business identifier such as <code>orderId</code>, and let the logging configuration include trace and span identifiers. Do not log raw message bodies or secrets merely to make an event searchable.</p>
+
+  <h2>4. Binder Capability Is Still Relevant</h2>
+  <p>The observability model is shared, but a binder may require its own activation property. For example, the Kafka binder's observation registry is disabled by default:</p>
+  <pre><code>spring:
+  cloud:
+    stream:
+      kafka:
+        binder:
+          enable-observation: true</code></pre>
+  <p>This is a useful boundary: use Actuator and Micrometer for the application-wide model, then consult the selected binder documentation for its transport-level signals and switches. Kafka-specific metrics and detailed broker lag analysis belong later in the Kafka Binder phase.</p>
+
+  <h2>5. Diagnose the Right Layer</h2>
+  <table>
+    <thead><tr><th>Symptom</th><th>First signal</th><th>Next action</th></tr></thead>
+    <tbody>
+      <tr><td>Events arrive slowly</td><td>Rate/latency metric</td><td>Compare producer rate, consumer rate, and broker backlog.</td></tr>
+      <tr><td>One order disappeared</td><td>Trace plus business ID</td><td>Find the last producer/consumer span, then inspect its logs.</td></tr>
+      <tr><td>Failures rose after a release</td><td>Error metric plus logs</td><td>Identify the failing exception and check retry or DLQ outcomes.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Assessment</h2>
+  <div class="callout success">
+    <strong>Retrieval Practice:</strong><br><br>
+    1. For each question, choose the first signal: “Are inventory events failing more often this hour?”, “Which service last handled order 492?”, and “Why was order 492 rejected?”<br><br>
+    2. What role does <code>spring-boot-starter-actuator</code> play in a Spring Cloud Stream application's observability setup?<br><br>
+    3. What does a Micrometer tracing bridge add that metrics alone cannot provide?<br><br>
+    4. Why should logs include a stable business identifier but avoid raw message payloads?<br><br>
+    5. In a Kafka-based application, which property enables the binder observation registry, and why should you still consult binder-specific documentation?
+  </div>
+
+  <h2>Primary Source</h2>
+  <ul>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/observability.html" target="_blank">Spring Cloud Stream: Observability</a></li>
+  </ul>
+
+  <div class="lesson-nav">
+    <a href="0014-error-handling.html">← Previous</a>
+    <a href="0016-configuration-options.html">Next lesson → Configuration Options</a>
+  </div>
+  <div class="reminder"><strong>Reminder:</strong> This agent is your teacher. Ask a followup question in chat if you want to turn one of these diagnostic paths into an Actuator or tracing setup for your application.</div>
+</body>
+</html>

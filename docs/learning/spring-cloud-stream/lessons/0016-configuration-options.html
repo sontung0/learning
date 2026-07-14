@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0016 • Configuration Options</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0016</span>
+      <span>Essential Features • Phase 4</span>
+      <span>~8 min read</span>
+    </div>
+    <h1>Configuration Options</h1>
+    <p><em>Make each message flow explicit without repeating every production policy on every binding.</em></p>
+  </div>
+
+  <h2>1. A Binding Is the Unit You Configure</h2>
+  <p>In the functional model, a function's input and output each have a binding name. For a consumer bean named <code>inventoryConsumer</code>, its input binding is <code>inventoryConsumer-in-0</code>. That name is the address used for its destination, consumer group, and per-binding policy.</p>
+  <pre><code>@Bean
+Consumer&lt;InventoryEvent&gt; inventoryConsumer() {
+    return event -&gt; process(event);
+}</code></pre>
+  <div class="callout primary"><strong>Practical rule:</strong> configure the binding name, not the Java method's internal implementation. The binding connects code to messaging infrastructure.</div>
+
+  <h2>2. Separate the Message Contract From Behavior</h2>
+  <p>Every binding needs a destination: the logical broker address. An input binding also commonly needs a group so multiple instances can share work and retain a stable consumer identity. Other settings control how that binding behaves, such as content type, concurrency, and retry.</p>
+  <pre><code>spring:
+  cloud:
+    function:
+      definition: inventoryConsumer
+    stream:
+      bindings:
+        inventoryConsumer-in-0:
+          destination: inventory-events
+          group: inventory-service
+          content-type: application/json
+          consumer:
+            concurrency: 2
+            max-attempts: 5</code></pre>
+  <p>This says <em>where</em> messages come from (<code>destination</code>), <em>which cooperative consumer identity</em> receives them (<code>group</code>), and <em>how</em> this consumer runs (<code>consumer</code> settings).</p>
+
+  <h2>3. Put Shared Policy in Defaults</h2>
+  <p>Repeated configuration is a source of drift. Set a safe shared baseline under <code>spring.cloud.stream.default</code>, then set a binding-level value only when it intentionally differs. A named binding overrides the relevant default.</p>
+  <pre><code>spring:
+  cloud:
+    stream:
+      default:
+        content-type: application/json
+        consumer:
+          max-attempts: 3
+          back-off-initial-interval: 1000
+      bindings:
+        paymentConsumer-in-0:
+          consumer:
+            max-attempts: 5</code></pre>
+  <p>Here, every consumer gets three total attempts unless overridden; <code>paymentConsumer-in-0</code> gets five. Defaults are a policy baseline, not a reason to hide important per-binding contracts such as destination and group.</p>
+
+  <h2>4. Keep Binder-Specific Properties in Their Lane</h2>
+  <p>Generic binding properties work through the binder abstraction. Transport-specific properties belong under that binder's namespace, for example <code>spring.cloud.stream.kafka.bindings.&lt;binding&gt;...</code>. This separation makes it clear which settings are portable and which tie the application to a broker.</p>
+  <p>Likewise, <code>spring.cloud.stream.default-binder</code> selects the binder used by default when more than one binder is available. Use a binding's <code>binder</code> property only when that particular binding must use a different configured binder.</p>
+  <div class="callout warning"><strong>Do not guess property names.</strong> The generic binding/property reference and the selected binder reference are both part of the configuration contract. Similar-looking broker properties can have very different semantics.</div>
+
+  <h2>Configuration Review Drill</h2>
+  <div class="callout success">
+    <strong>Assessment:</strong><br><br>
+    1. What is the input binding name for a functional consumer bean named <code>inventoryConsumer</code>, and why does that name matter?<br><br>
+    2. In one sentence each, distinguish <code>destination</code>, <code>group</code>, and <code>consumer.concurrency</code>.<br><br>
+    3. Where would you set a shared retry baseline of three total attempts, and where would you override only <code>paymentConsumer-in-0</code> to five?<br><br>
+    4. A team has Kafka and RabbitMQ binders on the classpath. What is the difference between <code>default-binder</code> and a binding's <code>binder</code> property?<br><br>
+    5. Why should a Kafka-only configuration property not be placed under the generic <code>spring.cloud.stream.bindings</code> prefix?
+  </div>
+
+  <h2>Primary Sources</h2>
+  <ul>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/configuration-options.html" target="_blank">Spring Cloud Stream: Configuration Options</a></li>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/binding-properties.html" target="_blank">Binding Properties</a></li>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/binding-service-properties.html" target="_blank">Binding Service Properties</a></li>
+  </ul>
+  <div class="lesson-nav">
+    <a href="0015-observability.html">← Previous</a>
+    <a href="#">Next lesson → Content Type Negotiation (Coming Soon)</a>
+  </div>
+  <div class="reminder"><strong>Reminder:</strong> This agent is your teacher. Ask a followup question in chat if you want to map a real function definition to its binding properties.</div>
+</body>
+</html>

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spring Cloud Stream Error Handling Reference</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta"><span class="lesson-number">Reference</span><span>Essential Features</span></div>
+    <h1>Error Handling</h1>
+    <p><em>A compact decision guide for failures while consuming messages.</em></p>
+  </div>
+  <table>
+    <thead><tr><th>Need</th><th>Mechanism</th><th>Outcome</th></tr></thead>
+    <tbody>
+      <tr><td>Transient failure</td><td>Consumer retry</td><td>Invoke the handler again; defaults to 3 attempts.</td></tr>
+      <tr><td>Inspect or react in this app</td><td>Error channel</td><td>Receive an <code>ErrorMessage</code> containing the failure.</td></tr>
+      <tr><td>Preserve exhausted failure</td><td>Binder DLQ/DLQ topic</td><td>Publish the failed record to durable broker storage for later action.</td></tr>
+    </tbody>
+  </table>
+  <h2>Useful Properties</h2>
+  <pre><code>spring.cloud.stream.bindings.&lt;binding&gt;.consumer.max-attempts=3
+spring.cloud.stream.bindings.&lt;binding&gt;.consumer.back-off-initial-interval=1000
+spring.cloud.stream.bindings.&lt;binding&gt;.consumer.retryable-exceptions.java.lang.IllegalStateException=false
+
+# Kafka binder
+spring.cloud.stream.kafka.bindings.&lt;binding&gt;.consumer.enable-dlq=true
+
+# Rabbit binder
+spring.cloud.stream.rabbit.bindings.&lt;binding&gt;.consumer.auto-bind-dlq=true</code></pre>
+  <h2>Remember</h2>
+  <ul>
+    <li>Retry is for failures that may succeed later; do not retry a known-invalid message indefinitely.</li>
+    <li>An error channel is application-local handling; a DLQ is broker-persisted recovery work.</li>
+    <li>DLQ names and options differ by binder. For Kafka, the default name is <code>error.&lt;destination&gt;.&lt;group&gt;</code>.</li>
+  </ul>
+  <p>Source: <a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/overview-error-handling.html" target="_blank">Spring Cloud Stream Error Handling</a></p>
+</body>
+</html>

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0014 • Error Handling</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0014</span>
+      <span>Essential Features • Phase 4</span>
+      <span>~8 min read</span>
+    </div>
+    <h1>Error Handling</h1>
+    <p><em>Turn a failed message handler into deliberate recovery work, not silent data loss.</em></p>
+  </div>
+  <h2>1. Start With the Failure's Shape</h2>
+  <p>A consumer can fail because a dependency is briefly unavailable, because the message violates a business rule, or because the application has a defect. These do not deserve the same response.</p>
+  <table>
+    <thead><tr><th>Failure</th><th>First response</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Temporary database timeout</td><td>Retry</td><td>A later invocation may succeed unchanged.</td></tr>
+      <tr><td>Malformed or invalid event</td><td>Do not retry; route for review</td><td>The same payload will fail again.</td></tr>
+      <tr><td>Unexpected application bug</td><td>Observe, alert, preserve message</td><td>Operators need context and a recovery path.</td></tr>
+    </tbody>
+  </table>
+  <div class="callout primary"><strong>Rule of thumb:</strong> retry a condition that can change; isolate a message whose meaning will not change by trying it again.</div>
+  <h2>2. The Default Retry Boundary</h2>
+  <p>For a message-handler exception, Spring Cloud Stream can retry processing through a consumer retry template. Its default is <strong>three attempts</strong>, with exponential backoff beginning at 1 second, capped at 10 seconds. Configure it on the consumer binding when the default does not fit the failure mode.</p>
+  <pre><code>spring:
+  cloud:
+    stream:
+      bindings:
+        inventory-in-0:
+          consumer:
+            max-attempts: 5
+            back-off-initial-interval: 500
+            back-off-multiplier: 2.0
+            retryable-exceptions:
+              java.net.SocketTimeoutException: true
+              com.example.InvalidInventoryEvent: false</code></pre>
+  <p><code>max-attempts</code> counts the original call too: a value of <code>5</code> means one initial attempt plus up to four retries. Use <code>retryable-exceptions</code> when exception type is the cleanest way to separate transient from permanent failure.</p>
+  <h2>3. Error Channels Keep Handling In-Process</h2>
+  <p>After a failed binding, Spring Cloud Stream publishes an <code>ErrorMessage</code> to an error channel. A binding-specific channel follows the pattern <code>&lt;bindingName&gt;.errors</code>; a global <code>errorChannel</code> can also observe errors. These channels are for application-local actions such as structured logging, metrics, or a compensating workflow.</p>
+  <pre><code>@Bean
+public Consumer&lt;ErrorMessage&gt; inventoryErrors() {
+    return errorMessage -&gt; {
+        Throwable failure = errorMessage.getPayload();
+        // Record context, alert, or trigger a compensating action.
+    };
+}</code></pre>
+  <div class="callout warning"><strong>Do not confuse an error channel with a DLQ.</strong> An error channel exists inside this running application. It does not itself provide durable broker storage for a message that needs later investigation or replay.</div>
+  <h2>4. DLQs Preserve Exhausted Failures</h2>
+  <p>A binder-specific dead-letter queue (DLQ) or topic forwards a message after processing is exhausted, keeping the original failure available for operators or a dedicated recovery flow. Enable it through the binder configuration, not the generic binding properties.</p>
+  <pre><code># Kafka: default DLQ topic is error.&lt;destination&gt;.&lt;group&gt;
+spring.cloud.stream.kafka.bindings.inventory-in-0.consumer.enable-dlq=true
+
+# RabbitMQ: declare and bind a dead-letter queue automatically
+spring.cloud.stream.rabbit.bindings.inventory-in-0.consumer.auto-bind-dlq=true</code></pre>
+  <p>A DLQ is not a success state. It is an operational contract: monitor its growth, retain enough diagnostic context, fix the cause, and decide whether each message should be corrected and replayed or deliberately discarded.</p>
+  <h2>Decision Drill</h2>
+  <div class="callout success">
+    <strong>Assessment:</strong><br><br>
+    1. A payment provider returns a timeout. Which mechanism comes first, and what property controls the total number of handler calls?<br><br>
+    2. An event is missing a required account ID. Why is retrying it a poor default, and where should you send it if it must be investigated later?<br><br>
+    3. What is the binding-specific error-channel naming pattern, what does it carry, and why is it different from a DLQ?<br><br>
+    4. Give the Kafka and RabbitMQ properties that enable a dead-letter destination for <code>inventory-in-0</code>.<br><br>
+    5. For <code>max-attempts: 5</code>, how many retries occur after the first handler call?
+  </div>
+  <h2>Primary Source</h2>
+  <ul>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/overview-error-handling.html" target="_blank">Spring Cloud Stream: Error Handling</a></li>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/kafka/kafka-binder/config-options.html" target="_blank">Kafka Binder Consumer Properties</a></li>
+  </ul>
+  <div class="lesson-nav">
+    <a href="0013-customizing-binders-in-multi-binder-applications.html">← Previous</a>
+    <a href="0015-observability.html">Next lesson → Observability</a>
+  </div>
+  <div class="reminder"><strong>Reminder:</strong> This agent is your teacher. Ask a followup question in chat if you want to work through the decision drill or apply these policies to a concrete service.</div>
+</body>
+</html>
