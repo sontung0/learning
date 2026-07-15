@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0021 • Health Indicator</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0021</span>
+      <span>Essential Features • Phase 4</span>
+      <span>~7 min read</span>
+    </div>
+    <h1>Health Indicator</h1>
+    <p><em>Expose binder health through Spring Boot Actuator — and know when an unused binder silently drags your status to DOWN.</em></p>
+  </div>
+
+  <h2>1. The Binder Health Indicator</h2>
+  <p>Spring Cloud Stream registers a health indicator for binders under the name <code>binders</code>. It integrates with Spring Boot Actuator's health endpoint so that platform orchestration (Kubernetes liveness/readiness, load balancers) can react to binder connectivity.</p>
+  <p>To use it, you need both <strong>web</strong> and <strong>actuator</strong> dependencies on your classpath. The health endpoint is then available at <code>/actuator/health</code>.</p>
+
+  <h2>2. Enabling &amp; Disabling</h2>
+  <table>
+    <thead><tr><th>Property</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td><code>management.health.binders.enabled</code> (unset)</td><td>Falls back to <code>management.health.defaults.enabled</code> — <strong>enabled</strong> by default</td></tr>
+      <tr><td><code>management.health.binders.enabled=true</code></td><td>Explicitly enable binder health checks</td></tr>
+      <tr><td><code>management.health.binders.enabled=false</code></td><td>Completely disable out-of-the-box binder health indicators</td></tr>
+    </tbody>
+  </table>
+  <div class="callout primary"><strong>Default is on.</strong> You don't need to set anything to get binder health — it's enabled unless you opt out.</div>
+
+  <h2>3. Seeing the Details</h2>
+  <p>By default, <code>/actuator/health</code> returns only the <strong>top-level status</strong> (e.g. <code>UP</code>). To see the per-binder details that feed that status, expose them:</p>
+  <pre><code>management.endpoint.health.show-details=ALWAYS</code></pre>
+  <p>With this, the response includes each binder's individual health — useful for diagnosing which binder is degraded while the overall status may still be <code>UP</code>.</p>
+
+  <h2>4. Health Indicators Are Binder-Specific</h2>
+  <p>Each binder implementation decides <em>how</em> it checks health. Not all binders provide a health indicator. The Kafka binder, for example, may report <code>DOWN</code> if no destinations are registered by that binder — a behavior that becomes important in multi-binder scenarios.</p>
+
+  <h2>5. The Unused-Binder Trap</h2>
+  <p>This is the most important practical lesson on this page. Consider an app with <strong>both</strong> the Kafka binder and the Kafka Streams binder on the classpath, but only the Kafka Streams binder is actually used (only Kafka Streams bindings are declared).</p>
+  <ol>
+    <li>The Kafka binder is present but unused — no destinations registered.</li>
+    <li>The Kafka binder's health check sees no destinations and reports <code>DOWN</code>.</li>
+    <li>The <strong>top-level application health becomes <code>DOWN</code></strong> — even though the app is perfectly healthy.</li>
+  </ol>
+  <div class="callout warning"><strong>Fix:</strong> remove the unused Kafka binder dependency from the application. If you're not using a binder, don't ship it on the classpath — its health check can poison the overall status.</div>
+
+  <h2>6. Custom &amp; Additional Health Indicators</h2>
+  <p>You can extend or replace binder health checks with your own <code>HealthIndicator</code> beans:</p>
+  <table>
+    <thead><tr><th>Goal</th><th>How</th></tr></thead>
+    <tbody>
+      <tr><td>Replace binder indicators entirely</td><td>Set <code>management.health.binders.enabled=false</code>, then provide your own <code>HealthIndicator</code> beans (Spring Boot's infrastructure still picks them up)</td></tr>
+      <tr><td>Augment binder indicators</td><td>Leave binder indicators enabled and add your own <code>HealthIndicator</code> beans alongside them</td></tr>
+    </tbody>
+  </table>
+
+  <h2>7. Multi-Binder: Disabling a Subset</h2>
+  <p>With multiple binders, health indicators are enabled for all by default. To disable health checks for <em>only a subset</em> of binders, set <code>management.health.binders.enabled=false</code> in that binder's environment-specific configuration (see <a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/multiple-systems.html" target="_blank">Connecting to Multiple Systems</a> for how environment-scoped properties work).</p>
+
+  <h2>Assessment</h2>
+  <div class="callout success">
+    <strong>Retrieval Practice:</strong><br><br>
+    1. Under what name is the binder health indicator registered, and what two dependencies must be on the classpath to access it via the actuator?<br><br>
+    2. What is the default state of binder health indicators (enabled or disabled), and which property would you set to turn them off completely?<br><br>
+    3. By default, what does <code>/actuator/health</code> return, and what property do you set to see per-binder details?<br><br>
+    4. Describe the unused-binder trap: why can an app with both the Kafka and Kafka Streams binders on the classpath report <code>DOWN</code> when only Kafka Streams is used, and what is the fix?<br><br>
+    5. How do you replace all binder health indicators with your own, and how do you augment them while keeping the built-in checks?
+  </div>
+
+  <h2>Primary Sources</h2>
+  <ul>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/health-indicator.html" target="_blank">Health Indicator</a></li>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/binding_visualization_control.html" target="_blank">Binding Visualization and Control</a></li>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/multiple-systems.html" target="_blank">Connecting to Multiple Systems</a></li>
+  </ul>
+
+  <div class="lesson-nav">
+    <a href="0020-testing.html">← Previous</a>
+    <a href="#">Next lesson → Samples (Coming Soon)</a>
+  </div>
+
+  <div class="reminder"><strong>Reminder:</strong> This agent is your teacher. Ask a followup question in chat if you want to wire up a custom <code>HealthIndicator</code> for your real binder setup.</div>
+</body>
+</html>

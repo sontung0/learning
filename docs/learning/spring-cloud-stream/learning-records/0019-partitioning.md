@@ -1,0 +1,5 @@
+# Partitioning
+
+The user studied Spring Cloud Stream's partitioning abstraction: guaranteeing that messages sharing a common key are processed by the same consumer instance, essential for stateful processing. The user reviewed producer-side configuration (`partitionKeyExpression` / `partitionKeyExtractorName` + `partitionCount`, default formula `key.hashCode() % partitionCount`), the two distinct extension points (key extractor vs. partition selector), consumer-side configuration (`consumer.partitioned=true` + `instanceIndex` + `instanceCount`), and broker-specific behavior (RabbitMQ always requires index/count; Kafka requires them only when `autoRebalanceEnabled=false` for sticky partition assignment).
+
+**Evidence:** The user completed Lesson 0019 and elected to skip the assessment, moving directly to the next topic (Testing).

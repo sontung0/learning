@@ -1,0 +1,5 @@
+# Testing with the Test Binder
+
+The user studied Spring Cloud Stream's test binder — an in-JVM, Spring Integration–based binder that exercises the real binding lifecycle, content-type conversion, and function invocation without a broker or network. The user reviewed setup (`spring-cloud-stream-test-binder` test dependency + `@EnableTestBinder`), the two harness beans (`InputDestination` for sending, `OutputDestination` for receiving), testing single and multiple functions with explicit binding names (or destination names when mapped), testing `PollableMessageSource` with a default or custom `MessageSource` bean (avoiding the name `messageSource`), and the two context-building approaches (`@EnableTestBinder` vs. `TestChannelBinderConfiguration.getCompleteConfiguration`).
+
+**Evidence:** The user completed Lesson 0020 and elected to skip the assessment, moving directly to the next topic (Health Indicator).

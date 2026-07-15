@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0018 • Inter-Application Communication</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0018</span>
+      <span>Essential Features • Phase 4</span>
+      <span>~7 min read</span>
+    </div>
+    <h1>Inter-Application Communication</h1>
+    <p><em>Wire individual Spring Boot apps into a streaming pipeline by aligning destinations — and tell each instance where it sits in the fleet.</em></p>
+  </div>
+
+  <h2>1. Pipelines Are Built From Adjacent Destinations</h2>
+  <p>The typical Spring Cloud Stream deployment is not a single app — it is a <strong>multi-application pipeline</strong> where one microservice hands data to the next. You build this not with code, but by <strong>correlating the input and output destinations</strong> of adjacent applications.</p>
+  <p>Suppose a Time Source sends to a Log Sink. Both point at a shared destination named <code>ticktock</code>:</p>
+  <pre><code># Time Source (producer)
+spring.cloud.stream.bindings.output.destination=ticktock
+
+# Log Sink (consumer)
+spring.cloud.stream.bindings.input.destination=ticktock</code></pre>
+  <div class="callout primary"><strong>Key idea:</strong> the two applications never reference each other directly. They agree only on a <em>destination name</em>. The broker is the meeting point; the destination is the contract.</div>
+
+  <h2>2. Consumer Groups Make the Pipeline Scale</h2>
+  <p>When multiple instances of the <em>same</em> sink application share a destination, they form a <strong>consumer group</strong> (Lesson 0003). Each message is delivered to exactly one instance in the group, giving you load-balanced consumption. Set the group on the consumer side:</p>
+  <pre><code># Log Sink — instance A, B, C all share this group
+spring.cloud.stream.bindings.input.group=log-sink-group</code></pre>
+  <p>Without a group, each instance receives its own copy of every message (broadcast / pub-sub). With a group, the fleet shares the load.</p>
+
+  <h2>3. Instance Index &amp; Instance Count</h2>
+  <p>When you scale an application to <code>N</code> instances, each instance can be told <em>how many siblings exist</em> and <em>which one it is</em>:</p>
+  <table>
+    <thead><tr><th>Property</th><th>Meaning</th><th>Default</th></tr></thead>
+    <tbody>
+      <tr><td><code>spring.cloud.stream.instanceCount</code></td><td>Total number of instances of this application</td><td><code>1</code></td></tr>
+      <tr><td><code>spring.cloud.stream.instanceIndex</code></td><td>This instance's position (0-based)</td><td><code>0</code></td></tr>
+    </tbody>
+  </table>
+  <p>For three HDFS sink instances, all set <code>instanceCount=3</code>; the individual apps set <code>instanceIndex</code> to <code>0</code>, <code>1</code>, and <code>2</code> respectively.</p>
+  <div class="callout warning"><strong>Why it matters:</strong> these two properties are critical for <strong>partitioning</strong> behavior — certain binders (notably Kafka) require them to split data correctly across consumer instances. Misconfigure them and partitions will be assigned incorrectly or data will be skipped.</div>
+
+  <h2>4. Who Sets These Properties?</h2>
+  <table>
+    <thead><tr><th>Deployment</th><th>Who sets instanceCount / instanceIndex</th></tr></thead>
+    <tbody>
+      <tr><td>Spring Cloud Data Flow</td><td>Configured <strong>automatically</strong> by the deployer</td></tr>
+      <tr><td>Independent launch (manual, K8s, etc.)</td><td><strong>You</strong> must set them correctly per instance</td></tr>
+    </tbody>
+  </table>
+  <p>If you deploy outside Data Flow — for example, as separate Kubernetes pods or plain JVM processes — you are responsible for giving each instance its unique index and the correct total count.</p>
+
+  <h2>5. Putting It Together: A Three-Stage Pipeline</h2>
+  <pre><code># Stage 1 — Time Source (HTTP → messages)
+spring.cloud.stream.bindings.output.destination=ticktock
+
+# Stage 2 — Log Sink (consumer group, 3 instances)
+spring.cloud.stream.bindings.input.destination=ticktock
+spring.cloud.stream.bindings.input.group=log-sink-group
+spring.cloud.stream.instanceCount=3
+spring.cloud.stream.instanceIndex=0   # 1, 2 on the other instances
+
+# Stage 3 — HDFS Sink (downstream of log-sink via another destination)
+spring.cloud.stream.bindings.input.destination=processed-logs
+spring.cloud.stream.bindings.input.group=hdfs-sink-group</code></pre>
+  <p>Each stage knows only its destinations and its place in the fleet. The broker stitches the pipeline together.</p>
+
+  <h2>Assessment</h2>
+  <div class="callout success">
+    <strong>Retrieval Practice:</strong><br><br>
+    1. Two Spring Cloud Stream apps need to form a pipeline. What single piece of configuration makes the producer's output reach the consumer, and do the apps ever reference each other directly?<br><br>
+    2. You launch three instances of a sink application against the same destination. What property turns them into a load-balanced consumer group instead of three independent broadcast receivers?<br><br>
+    3. Name the two properties that tell an instance about the size of its fleet and its own position. What are their default values?<br><br>
+    4. Which deployment platform sets those two properties automatically, and what must you do when launching instances independently?<br><br>
+    5. Why are instance count and instance index especially important for the Kafka binder — what breaks if they are wrong?
+  </div>
+
+  <h2>Primary Sources</h2>
+  <ul>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/application-communication.html" target="_blank">Inter-Application Communication</a></li>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/overview-connecting-multiple-application-instances.html" target="_blank">Connecting Multiple Application Instances</a></li>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/overview-instance-index-instance-count.html" target="_blank">Instance Index and Instance Count</a></li>
+  </ul>
+
+  <div class="lesson-nav">
+    <a href="0017-content-type-negotiation.html">← Previous</a>
+    <a href="#">Next lesson → Partitioning (Coming Soon)</a>
+  </div>
+
+  <div class="reminder"><strong>Reminder:</strong> This agent is your teacher. Ask a followup question in chat if you want to sketch out a real multi-stage pipeline from your own domain and check the destination wiring.</div>
+</body>
+</html>

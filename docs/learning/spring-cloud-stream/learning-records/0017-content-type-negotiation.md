@@ -1,0 +1,5 @@
+# Content Type Negotiation
+
+The user demonstrated how Spring Cloud Stream converts a broker's wire bytes into a function's target type using a `MessageConverter`, guided by the binding `content-type` property and the handler's argument type. The user identified `application/json` as the default content type, distinguished binding-level contracts from per-message `contentType` headers, explained the effect of `use-native-decoding`/`use-native-encoding` (bypassing framework conversion in favor of broker-client serialization), and recognized when a custom `MessageConverter` is justified (a genuinely new media type not covered by the supplied converters).
+
+**Evidence:** The user completed Lesson 0017 and confirmed understanding of the converter selection process, default content type, binding vs. message-level metadata, native encoding/decoding, and the supplied converter set (JSON, text, byte array).

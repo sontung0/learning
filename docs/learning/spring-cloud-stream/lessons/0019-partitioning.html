@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0019 • Partitioning</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0019</span>
+      <span>Essential Features • Phase 4</span>
+      <span>~9 min read</span>
+    </div>
+    <h1>Partitioning</h1>
+    <p><em>Guarantee that data with a common key always lands on the same consumer instance — for stateful processing, ordering, and locality.</em></p>
+  </div>
+
+  <h2>1. Why Partition?</h2>
+  <p>Partitioning ensures that messages sharing a common characteristic are processed by the <strong>same consumer instance</strong>. This is critical for <em>stateful processing</em>: in a time-windowed average calculation, all measurements from a given sensor must reach the same instance, or the window will be incomplete.</p>
+  <p>Spring Cloud Stream provides a <strong>common abstraction</strong> for partitioning that works whether the broker is natively partitioned (Kafka) or not (RabbitMQ). The broker topic/queue is viewed as structured into multiple partitions; producers route by key, consumers claim specific partitions.</p>
+  <div class="callout primary"><strong>Both ends must be configured.</strong> Partitioning is a contract between producer and consumer — configuring only one side is a common bug.</div>
+
+  <h2>2. Configuring the Producer (Output Binding)</h2>
+  <p>Three properties control outbound partitioning. You set <strong>one</strong> key strategy plus the partition count:</p>
+  <table>
+    <thead><tr><th>Property</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>partitionKeyExpression</code></td><td>SpEL expression evaluated against the outbound message to extract the key (e.g. <code>headers.id</code>)</td></tr>
+      <tr><td><code>partitionKeyExtractorName</code></td><td>Name of a <code>PartitionKeyExtractorStrategy</code> bean when SpEL is insufficient</td></tr>
+      <tr><td><code>partitionCount</code></td><td>Number of partitions to split data across</td></tr>
+    </tbody>
+  </table>
+  <pre><code>spring.cloud.stream.bindings.func-out-0.producer.partitionKeyExpression=headers.id
+spring.cloud.stream.bindings.func-out-0.producer.partitionCount=5</code></pre>
+  <p>Once the key is calculated, the target partition is chosen as <code>key.hashCode() % partitionCount</code> by default — a value between <code>0</code> and <code>partitionCount - 1</code>.</p>
+
+  <h2>3. Customizing Partition Selection</h2>
+  <p>If the default <code>hashCode() % partitionCount</code> formula doesn't suit you, you can override the <em>selector</em> (the step that maps key → partition), independently of the key extractor:</p>
+  <table>
+    <thead><tr><th>Property</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>partitionSelectorExpression</code></td><td>SpEL evaluated against the <code>key</code> to pick the partition</td></tr>
+      <tr><td><code>partitionSelectorName</code></td><td>Name of a <code>PartitionSelectorStrategy</code> bean</td></tr>
+    </tbody>
+  </table>
+  <pre><code>@Bean
+public CustomPartitionSelectorClass customPartitionSelector() {
+    return new CustomPartitionSelectorClass();
+}
+// spring.cloud.stream.bindings.func-out-0.producer.partitionSelectorName=customPartitionSelector</code></pre>
+  <div class="callout warning"><strong>Two distinct extension points:</strong> the <em>key extractor</em> decides what to partition <em>by</em>; the <em>selector</em> decides which partition that key maps <em>to</em>. Don't conflate them.</div>
+
+  <h2>4. Configuring the Consumer (Input Binding)</h2>
+  <p>The consumer side declares itself partitioned and states its position in the fleet (from Lesson 0018):</p>
+  <pre><code>spring.cloud.stream.bindings.uppercase-in-0.consumer.partitioned=true
+spring.cloud.stream.instanceIndex=3
+spring.cloud.stream.instanceCount=5</code></pre>
+  <p><code>instanceCount</code> is the total number of app instances sharing the partitioned data; <code>instanceIndex</code> must be unique across them, in the range <code>0</code> to <code>instanceCount - 1</code>. Each instance uses its index to identify which partition(s) it receives from.</p>
+
+  <h2>5. Broker-Specific Behavior</h2>
+  <table>
+    <thead><tr><th>Broker</th><th>Are instanceCount / instanceIndex required?</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>RabbitMQ</td><td><strong>Yes</strong></td><td>No native partitioning — a queue is created per partition, named using the instance index</td></tr>
+      <tr><td>Kafka (autoRebalanceEnabled=true, default)</td><td><strong>No</strong></td><td>Kafka itself distributes partitions across instances via rebalance</td></tr>
+      <tr><td>Kafka (autoRebalanceEnabled=false)</td><td><strong>Yes</strong></td><td>The binder (not Kafka) assigns partitions; requires at least as many partitions as instances — useful for sticky partition-to-instance mapping</td></tr>
+    </tbody>
+  </table>
+  <div class="callout primary"><strong>Sticky assignment:</strong> disabling Kafka auto-rebalance lets you pin a specific partition to a specific instance — desirable when a partition's data must always be processed by the same instance for state locality.</div>
+
+  <h2>6. End-to-End Example</h2>
+  <pre><code># --- Producer ---
+spring.cloud.stream.bindings.sensor-out-0.producer.partitionKeyExpression=headers.sensorId
+spring.cloud.stream.bindings.sensor-out-0.producer.partitionCount=5
+
+# --- Consumer instance 2 of 5 ---
+spring.cloud.stream.bindings.avg-in-0.consumer.partitioned=true
+spring.cloud.stream.instanceIndex=2
+spring.cloud.stream.instanceCount=5</code></pre>
+  <p>All messages with the same <code>sensorId</code> hash to the same partition and thus reach the same consumer instance — so the windowed average for each sensor is computed correctly.</p>
+
+  <h2>Assessment</h2>
+  <div class="callout success">
+    <strong>Retrieval Practice:</strong><br><br>
+    1. What is the core guarantee partitioning provides, and name a stateful processing scenario where it is essential.<br><br>
+    2. Which two producer properties configure outbound partitioning, and what is the default formula that maps a key to a partition?<br><br>
+    3. Distinguish <code>partitionKeyExtractorName</code> from <code>partitionSelectorName</code> — what does each control, and can you use them together?<br><br>
+    4. Which three consumer-side properties must be set to receive partitioned data, and what range must <code>instanceIndex</code> fall within?<br><br>
+    5. For Kafka with <code>autoRebalanceEnabled=true</code>, are <code>instanceCount</code>/<code>instanceIndex</code> required? What changes when auto-rebalance is disabled, and why might you disable it?
+  </div>
+
+  <h2>Primary Sources</h2>
+  <ul>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/overview-partitioning.html" target="_blank">Partitioning Support</a></li>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/overview-instance-index-instance-count.html" target="_blank">Instance Index and Instance Count</a></li>
+  </ul>
+
+  <div class="lesson-nav">
+    <a href="0018-inter-application-communication.html">← Previous</a>
+    <a href="#">Next lesson → Testing (Coming Soon)</a>
+  </div>
+
+  <div class="reminder"><strong>Reminder:</strong> This agent is your teacher. Ask a followup question in chat if you want to design a partitioning strategy for a real domain key from your own work.</div>
+</body>
+</html>

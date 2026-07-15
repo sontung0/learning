@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0020 • Testing with the Test Binder</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0020</span>
+      <span>Essential Features • Phase 4</span>
+      <span>~9 min read</span>
+    </div>
+    <h1>Testing with the Test Binder</h1>
+    <p><em>Test your stream functions in-JVM — a real binder, no broker, no network.</em></p>
+  </div>
+
+  <h2>1. A Real Binder Without the Network</h2>
+  <p>Spring Cloud Stream ships a <strong>test binder</strong> based on the <a href="https://spring.io/projects/spring-integration" target="_blank">Spring Integration</a> framework. It acts as an in-JVM message broker — giving you a <em>real</em> binder (full binding lifecycle, conversion, function invocation) without a real broker or any networking. It bridges unit and integration testing.</p>
+  <div class="callout primary"><strong>Why it matters:</strong> you can assert that your <code>Function</code>, <code>Consumer</code>, or <code>Supplier</code> behaves correctly <em>through the actual Spring Cloud Stream machinery</em> — not just calling the function directly. Binding names, content-type conversion, and routing are all exercised.</div>
+
+  <h2>2. Setup</h2>
+  <p>Add the test binder dependency (test scope only):</p>
+  <pre><code>&lt;!-- Maven --&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.cloud&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-cloud-stream-test-binder&lt;/artifactId&gt;
+    &lt;scope&gt;test&lt;/scope&gt;
+&lt;/dependency&gt;</code></pre>
+  <pre><code>// Gradle (Kotlin DSL)
+testImplementation("org.springframework.cloud:spring-cloud-stream-test-binder")</code></pre>
+  <p>Then annotate your test configuration with <code>@EnableTestBinder</code>. This replaces any real binder on the classpath with the test binder for the test context.</p>
+
+  <h2>3. The Two Test Harness Beans</h2>
+  <p>The test binder exposes two beans you inject to drive messages in and assert messages out:</p>
+  <table>
+    <thead><tr><th>Bean</th><th>Role</th><th>Key methods</th></tr></thead>
+    <tbody>
+      <tr><td><code>InputDestination</code></td><td>Send messages <em>into</em> the function's input binding</td><td><code>send(Message)</code>, <code>send(Message, bindingName)</code></td></tr>
+      <tr><td><code>OutputDestination</code></td><td>Receive messages <em>from</em> the function's output binding</td><td><code>receive()</code>, <code>receive(timeout, bindingName)</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2>4. Simplest Test: One Function</h2>
+  <pre><code>@SpringBootTest
+public class SampleStreamTests {
+
+    @Autowired
+    private InputDestination input;
+
+    @Autowired
+    private OutputDestination output;
+
+    @Test
+    public void testUppercase() {
+        this.input.send(new GenericMessage&lt;byte[]&gt;("hello".getBytes()));
+        assertThat(output.receive().getPayload()).isEqualTo("HELLO".getBytes());
+    }
+
+    @SpringBootApplication
+    @EnableTestBinder
+    public static class SampleConfiguration {
+        @Bean
+        public Function&lt;String, String&gt; uppercase() {
+            return v -> v.toUpperCase();
+        }
+    }
+}</code></pre>
+  <p>Send <code>"hello"</code> in, assert <code>"HELLO"</code> comes out. The test binder handles the binding wiring, content-type conversion, and function invocation — exactly as a real binder would.</p>
+
+  <h2>5. Multiple Functions &amp; Explicit Binding Names</h2>
+  <p>When you have multiple functions, pass the <em>binding name</em> to <code>send()</code> and <code>receive()</code> to target a specific function's input or output:</p>
+  <pre><code>@Test
+public void testMultipleFunctions() {
+    try (ConfigurableApplicationContext context = new SpringApplicationBuilder(
+            TestChannelBinderConfiguration.getCompleteConfiguration(
+                    SampleFunctionConfiguration.class))
+            .run("--spring.cloud.function.definition=uppercase;reverse")) {
+
+        InputDestination inputDestination = context.getBean(InputDestination.class);
+        OutputDestination outputDestination = context.getBean(OutputDestination.class);
+
+        Message&lt;byte[]&gt; inputMessage = MessageBuilder.withPayload("Hello".getBytes()).build();
+        inputDestination.send(inputMessage, "uppercase-in-0");
+        inputDestination.send(inputMessage, "reverse-in-0");
+
+        assertThat(outputDestination.receive(0, "uppercase-out-0").getPayload())
+                .isEqualTo("HELLO".getBytes());
+        assertThat(outputDestination.receive(0, "reverse-out-0").getPayload())
+                .isEqualTo("olleH".getBytes());
+    }
+}</code></pre>
+  <div class="callout warning"><strong>Use destination names when you map them.</strong> If you set <code>spring.cloud.stream.bindings.uppercase-in-0.destination=myInput</code>, then you must send to <code>"myInput"</code> — not the binding name. The test binder honors the same destination mapping as production.</div>
+
+  <h2>6. Testing PollableMessageSource</h2>
+  <p>The test binder also supports <code>PollableMessageSource</code> (polled consumers). It provides a <em>default</em> <code>MessageSource</code> that returns a fixed payload — sufficient for most tests. To supply your own data, register a <code>MessageSource&lt;?&gt;</code> bean:</p>
+  <pre><code>@Bean
+public MessageSource&lt;?&gt; source() {
+    return () -> new GenericMessage&lt;&gt;("My Own Data " + UUID.randomUUID());
+}</code></pre>
+  <div class="callout warning"><strong>Do not name this bean <code>messageSource</code>.</strong> It conflicts with a Spring Boot bean of the same name (different type). Use any other name, e.g. <code>source</code>.</div>
+
+  <h2>7. Two Ways to Build the Test Context</h2>
+  <table>
+    <thead><tr><th>Approach</th><th>When to use</th></tr></thead>
+    <tbody>
+      <tr><td><code>@SpringBootTest</code> + <code>@EnableTestBinder</code> on a nested config class</td><td>Single configuration per test class — simplest, most common</td></tr>
+      <tr><td><code>TestChannelBinderConfiguration.getCompleteConfiguration(...)</code> via <code>SpringApplicationBuilder</code></td><td>Multiple configurations in one test class, or fine-grained control over properties passed at runtime</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Assessment</h2>
+  <div class="callout success">
+    <strong>Retrieval Practice:</strong><br><br>
+    1. What is the test binder, what framework does it build on, and what does it give you that a plain unit test calling a function directly does not?<br><br>
+    2. Name the two beans the test binder injects for driving messages in and asserting messages out, and one key method on each.<br><br>
+    3. In the multiple-function test, why do you pass <code>"uppercase-in-0"</code> to <code>send()</code> rather than just calling <code>send(message)</code>? What changes if you set a <code>destination</code> for that binding?<br><br>
+    4. When testing a <code>PollableMessageSource</code>, what does the test binder provide by default, and how do you supply your own data? What bean name must you avoid and why?<br><br>
+    5. Contrast the two ways to build the test context (<code>@EnableTestBinder</code> vs. <code>TestChannelBinderConfiguration</code>) — when would you choose each?
+  </div>
+
+  <h2>Primary Sources</h2>
+  <ul>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/spring-cloud-stream/spring_integration_test_binder.html" target="_blank">Testing — Spring Integration Test Binder</a></li>
+    <li><a href="https://spring.io/projects/spring-integration" target="_blank">Spring Integration</a></li>
+  </ul>
+
+  <div class="lesson-nav">
+    <a href="0019-partitioning.html">← Previous</a>
+    <a href="#">Next lesson → Health Indicator (Coming Soon)</a>
+  </div>
+
+  <div class="reminder"><strong>Reminder:</strong> This agent is your teacher. Ask a followup question in chat if you want to sketch a test for one of your real stream functions and check the binding names.</div>
+</body>
+</html>
