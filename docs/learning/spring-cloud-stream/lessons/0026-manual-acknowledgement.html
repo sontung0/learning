@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0026 • Manual Acknowledgement</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0026</span>
+      <span>Apache Kafka Binder • Phase 5</span>
+      <span>~6 min read</span>
+    </div>
+    <h1>Manual Acknowledgement</h1>
+    <p><em>Take personal control over when Kafka offsets get committed — useful for exactly-once-ish workflows, but easy to forget to call.</em></p>
+  </div>
+
+  <h2>1. Why Manual Acknowledgement?</h2>
+  <p>By default, Spring Cloud Stream's Kafka binder commits offsets on your behalf — typically after each record (or batch) is successfully processed. Most applications never need to think about this. <strong>Manual acknowledgement</strong> is the escape hatch: it lets your function say precisely <em>when</em> an offset is safe to commit, e.g. <strong>after</strong> a downstream database write or downstream publish has succeeded. This is the foundation of patterns like consume-transform-produce with at-least-once or exactly-once semantics.</p>
+
+  <h2>2. The Switch: <code>ackMode: MANUAL</code></h2>
+  <p>This is a <strong>Kafka-binder-specific</strong> consumer property — it lives under the <code>spring.cloud.stream.kafka.bindings.&lt;target&gt;.consumer</code> namespace, not the portable <code>bindings</code> namespace from the core model:</p>
+  <pre><code>spring:
+  cloud:
+    stream:
+      kafka:
+        bindings:
+          process-in-0:
+            consumer:
+              ackMode: MANUAL</code></pre>
+  <div class="callout primary"><strong>Other AckMode values</strong> (defined by Spring for Apache Kafka's <code>ContainerProperties.AckMode</code> enum): <code>AUTO</code>, <code>AUTO_IMMEDIATE</code>, <code>MANUAL</code>, <code>MANUAL_IMMEDIATE</code>, <code>RECORD</code>, <code>BATCH</code>. The binder's default is effectively <code>BATCH</code> (commit after the listener returns for each poll). Switching to <code>MANUAL</code> puts you in charge.</div>
+  <div class="callout warning"><strong>Two flavors of MANUAL:</strong><br>
+    • <code>MANUAL</code> — the ack you call is applied when the next <code>poll()</code> happens (deferred commit).<br>
+    • <code>MANUAL_IMMEDIATE</code> — the ack commits the offset synchronously, right away.<br>
+    Same <code>acknowledge()</code> call; the difference is timing.
+  </div>
+  <div class="callout primary"><strong>Channel-name convention:</strong> The <code>kafka.bindings</code> key uses the input <em>channel/binding name</em>. In the functional model this is your bean name with its <code>-in-0</code> / <code>-out-0</code> suffix. The docs example uses the legacy literal <code>input</code> — translate it to your actual destination binding name.</div>
+
+  <h2>3. Grabbing the <code>Acknowledgment</code></h2>
+  <p>Once <code>ackMode</code> is <code>MANUAL</code>, the binder attaches an <code>Acknowledgment</code> object to the message, available via the <code>KafkaHeaders.ACKNOWLEDGMENT</code> header. You must accept <code>Message&lt;?&gt;</code> (not just the payload) to reach it:</p>
+  <pre><code>@SpringBootApplication
+public class ManuallyAcknowledgingConsumer {
+
+    @Bean
+    public Consumer&lt;Message&lt;?&gt;&gt; process() {
+        return message -&gt; {
+            Acknowledgment ack = message.getHeaders()
+                .get(KafkaHeaders.ACKNOWLEDGMENT, Acknowledgment.class);
+            if (ack != null) {
+                System.out.println("Acknowledgment provided");
+                ack.acknowledge();
+            }
+        };
+    }
+}</code></pre>
+  <p>Key points:</p>
+  <ul>
+    <li><strong>Signature must be a <code>Consumer&lt;Message&lt;?&gt;&gt;</code></strong> (or <code>Message&lt;T&gt;</code>) — a bare <code>Consumer&lt;T&gt;</code> has no headers, so no access to the <code>Acknowledgment</code>.</li>
+    <li><strong>Always null-check</strong> — the header may be absent under some configurations or in tests.</li>
+    <li><strong>Calling <code>acknowledge()</code></strong> marks the offset (immediately or deferred, per your AckMode). The offset not committed is the next record to read.</li>
+  </ul>
+
+  <h2>4. What Happens If You Forget?</h2>
+  <p>If <code>ackMode</code> is <code>MANUAL</code> and your listener returns <strong>without</strong> calling <code>acknowledge()</code>, the offset is <strong>not committed</strong>. On the next poll the consumer still sees the unacked records — effectively a redelivery loop. Always ensure your acknowledge call is reached on every path (including after errors, if that's the desired behavior), or pick <code>AUTO</code> / <code>BATCH</code> defaults instead.</p>
+
+  <h2>5. <code>nack(index, sleep)</code> — Partial-Batch Rejection</h2>
+  <p>In <strong>batch mode</strong> (Lesson 0025), <code>Acknowledgment</code> gives you more than <code>acknowledge()</code> — it provides <code>nack(int index, long sleep)</code>. This commits offsets for all records <em>before</em> the given index, sleeps, then redelivers the remaining records of the batch. This is the recommended retry mechanism in batch mode since binder retry is disabled:</p>
+  <pre><code>@Bean
+public Consumer&lt;Message&lt;List&lt;Widget&gt;&gt;&gt; processBatch() {
+    return message -&gt; {
+        List&lt;Widget&gt; batch = message.getPayload();
+        Acknowledgment ack = message.getHeaders()
+            .get(KafkaHeaders.ACKNOWLEDGMENT, Acknowledgment.class);
+        try {
+            for (int i = 0; i &lt; batch.size(); i++) {
+                handle(batch.get(i));
+            }
+            if (ack != null) ack.acknowledge();
+        } catch (Exception e) {
+            // commit the good prefix, redeliver the rest
+            if (ack != null) ack.nack(failedIndex, 1000L);
+        }
+    };
+}</code></pre>
+
+  <h2>6. When to Reach for Manual Ack</h2>
+  <table>
+    <thead><tr><th>Scenario</th><th>Use manual ack?</th></tr></thead>
+    <tbody>
+      <tr><td>Plain fire-and-forget consumer</td><td><strong>No</strong> — default <code>BATCH</code> is fine</td></tr>
+      <tr><td>Consume → write to DB / call external API</td><td><strong>Yes</strong> — ack only after the side effect succeeds</td></tr>
+      <tr><td>Consume → produce on Kafka (consume-transform-produce)</td><td><strong>Yes</strong> — combine with a producer transaction for exactly-once</td></tr>
+      <tr><td>Batch consumer needing partial failure isolation</td><td><strong>Yes</strong> — use <code>nack(index, sleep)</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Assessment</h2>
+  <div class="callout success">
+    <strong>Retrieval Practice:</strong><br><br>
+    1. Where does the <code>ackMode</code> property live (which namespace)? Which value enables manual acknowledgement, and what does the binder's default effectively amount to?<br><br>
+    2. What is the difference between <code>MANUAL</code> and <code>MANUAL_IMMEDIATE</code>?<br><br>
+    3. What must your functional signature look like to access the <code>Acknowledgment</code>? Which header constant retrieves it, and what check should you always perform?<br><br>
+    4. What happens if <code>ackMode: MANUAL</code> is set but your code never calls <code>acknowledge()</code>?<br><br>
+    5. What does <code>nack(index, sleep)</code> do, and why is it particularly important in batch mode?
+  </div>
+
+  <h2>Primary Sources</h2>
+  <ul>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/kafka/kafka-binder/manual-ack.html" target="_blank">Manual Acknowledgement</a></li>
+    <li><a href="https://docs.spring.io/spring-kafka/reference/kafka/receiving-messages/listener-annotation.html" target="_blank">Spring for Apache Kafka: AckMode</a></li>
+  </ul>
+
+  <div class="lesson-nav">
+    <a href="0025-consuming-batches.html">← Previous</a>
+    <a href="#">Next lesson → Security Configuration (Coming Soon)</a>
+  </div>
+
+  <div class="reminder"><strong>Reminder:</strong> This agent is your teacher. Ask in chat whether your real consumer needs manual ack, or whether default commit semantics are safe enough.</div>
+</body>
+</html>

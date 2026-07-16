@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0025 • Consuming Batches</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0025</span>
+      <span>Apache Kafka Binder • Phase 5</span>
+      <span>~8 min read</span>
+    </div>
+    <h1>Consuming Batches</h1>
+    <p><em>Process a whole poll's worth of records at once — higher throughput, but with sharper edges around retries, DLQ, and tracing.</em></p>
+  </div>
+
+  <h2>1. The Switch: <code>batch-mode</code></h2>
+  <p>By default, Spring Cloud Stream hands each Kafka record to your function <strong>one at a time</strong>. Setting <code>batch-mode</code> to <code>true</code> changes that — all records received in a single <code>Consumer.poll()</code> are delivered to your function as a single <code>List</code>. This is a <strong>portable binding property</strong> on the core namespace:</p>
+  <pre><code>spring:
+  cloud:
+    stream:
+      bindings:
+        myConsumer-in-0:
+          consumer:
+            batch-mode: true</code></pre>
+  <div class="callout primary"><strong>What controls batch size?</strong> It's not a Spring Cloud Stream property — it's governed by the raw Kafka consumer properties <code>max.poll.records</code>, <code>fetch.min.bytes</code>, and <code>fetch.max.wait.ms</code> (set via the consumer's <code>configuration</code> map from Lesson 0023). Spring Cloud Stream just decides whether to hand you the whole poll at once or record-by-record.</div>
+
+  <h2>2. Allowed Type Signatures</h2>
+  <p>When batch mode is on, your function receives a <code>List</code>. Two signatures are permitted:</p>
+  <table>
+    <thead><tr><th>Signature</th><th>Headers?</th><th>When to use</th></tr></thead>
+    <tbody>
+      <tr><td><code>Consumer&lt;List&lt;Person&gt;&gt;</code></td><td><strong>No</strong> — no headers available</td><td>When you only need the payload objects</td></tr>
+      <tr><td><code>Consumer&lt;Message&lt;List&lt;Person&gt;&gt;&gt;</code></td><td><strong>Yes</strong> — but each header value is itself a <code>Collection</code></td><td>When you need per-record headers aligned to payloads</td></tr>
+    </tbody>
+  </table>
+
+  <h2>3. The Per-Record Header Alignment</h2>
+  <p>This is the subtle part. Suppose your <code>Message</code> contains a list of ten <code>Person</code> objects. The <code>MessageHeaders</code> are <strong>not</strong> a single value — each header key maps to a <strong>list</strong>, where position <code>i</code> corresponds to payload element <code>i</code>. You must iterate in lockstep:</p>
+  <pre><code>@Bean
+public Consumer&lt;Message&lt;List&lt;Person&gt;&gt;&gt; processPeople() {
+    return message -> {
+        List&lt;Person&gt; people = message.getPayload();
+        List&lt;String&gt; keys = message.getHeaders()
+                .get("kafka_receivedMessageKey", List.class);
+        for (int i = 0; i &lt; people.size(); i++) {
+            handle(people.get(i), keys.get(i));  // aligned by index
+        }
+    };
+}</code></pre>
+  <div class="callout warning"><strong>Forbidden signature:</strong> <code>List&lt;Message&lt;Person&gt;&gt;</code> is <strong>not allowed</strong> in batch mode. You cannot get a list of individually-wrapped messages — use <code>Message&lt;List&lt;...&gt;&gt;</code> instead.</div>
+
+  <h2>4. KafkaNull (Tombstones) in Batches</h2>
+  <p>When the topic contains <code>KafkaNull</code> objects (tombstone records), the received list contains a <strong><code>null</code> element</strong> at the corresponding position — for both <code>List&lt;Person&gt;</code> and <code>Message&lt;List&lt;Person&gt;&gt;</code> signatures. Your handler must null-check each element.</p>
+
+  <h2>5. Retries Are Disabled — Plan for It</h2>
+  <div class="callout warning">
+    <strong>Binder retry is not supported in batch mode.</strong> <code>maxAttempts</code> is overridden to <code>1</code>. For retry-like behavior, use one of:
+    <ul>
+      <li>A <code>DefaultErrorHandler</code> via a <code>ListenerContainerCustomizer</code> (Spring for Apache Kafka)</li>
+      <li>Manual <code>AckMode</code> + <code>Acknowledgment.nack(index, sleep)</code> — commits offsets for the processed portion of the batch and redelivers the remainder</li>
+    </ul>
+  </div>
+
+  <h2>6. DLQ in Batch Mode (4.0.2+)</h2>
+  <p>Starting with version <strong>4.0.2</strong>, the binder supports dead-letter queues while consuming in batch mode. But the granularity is coarse: <strong>all records from the previous poll</strong> are sent to the DLQ topic — not just the individual record that failed. If you need finer control, use the <code>nack(index, sleep)</code> technique above to isolate the failing record.</p>
+
+  <h2>7. Observability Caveat</h2>
+  <p>Tracing propagation is <strong>not directly supported</strong> in batch listeners — the underlying Spring for Apache Kafka library only traces record listeners. This makes sense: a batch may contain records from <em>multiple topics, partitions, and producers</em> with no guaranteed correlation, so the framework cannot assume a single trace ID. If you use <code>Message&lt;List&lt;...&gt;&gt;</code>, the header <code>kafka_batchConvertedHeaders</code> includes tracing headers per record — but <strong>you</strong> must iterate and start observations manually.</p>
+
+  <h2>Assessment</h2>
+  <div class="callout success">
+    <strong>Retrieval Practice:</strong><br><br>
+    1. Which property switches on batch mode, and what does it change about how records are delivered? Which Kafka consumer properties control the actual batch size?<br><br>
+    2. Name the two allowed type signatures for a batch consumer. Which gives you access to headers, and what form do those headers take?<br><br>
+    3. Explain the per-record header alignment: if a <code>Message&lt;List&lt;Person&gt;&gt;</code> has ten payloads, what is the structure of a single header value? How do you correlate it to a payload? Which signature is forbidden?<br><br>
+    4. What does binder retry do in batch mode, and what are the two alternatives for achieving retry-like behavior?<br><br>
+    5. What DLQ granularity does batch mode offer (and since which version)? Why is tracing propagation not supported directly, and how can you access per-record tracing headers if needed?
+  </div>
+
+  <h2>Primary Sources</h2>
+  <ul>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/kafka/kafka-binder/consume-batches.html" target="_blank">Consuming Batches</a></li>
+    <li><a href="https://kafka.apache.org/documentation/#consumerconfigs_max.poll.records" target="_blank">Kafka: max.poll.records</a></li>
+  </ul>
+
+  <div class="lesson-nav">
+    <a href="0024-resetting-offsets.html">← Previous</a>
+    <a href="#">Next lesson → Manual Acknowledgement (Coming Soon)</a>
+  </div>
+
+  <div class="reminder"><strong>Reminder:</strong> This agent is your teacher. Ask a followup question in chat if you want to decide whether batch mode fits your real throughput scenario and how to handle partial failures.</div>
+</body>
+</html>
