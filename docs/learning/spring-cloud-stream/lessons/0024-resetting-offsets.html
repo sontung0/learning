@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0024 • Resetting Offsets</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0024</span>
+      <span>Apache Kafka Binder • Phase 5</span>
+      <span>~6 min read</span>
+    </div>
+    <h1>Resetting Offsets</h1>
+    <p><em>Control exactly where consumption begins — replay from the start, or skip the backlog and listen live.</em></p>
+  </div>
+
+  <h2>1. Two Properties Govern Starting Position</h2>
+  <p>When an application starts, its initial position in each assigned partition depends on two binding-level consumer properties:</p>
+  <table>
+    <thead><tr><th>Property</th><th>Default</th><th>Role</th></tr></thead>
+    <tbody>
+      <tr><td><code>startOffset</code></td><td><code>earliest</code> (named group) / <code>latest</code> (anonymous)</td><td><em>Where</em> to start when there is no committed offset</td></tr>
+      <tr><td><code>resetOffsets</code></td><td><code>false</code></td><td>Whether to <em>ignore</em> the committed offset and seek to <code>startOffset</code> anyway</td></tr>
+    </tbody>
+  </table>
+
+  <h2>2. Default Behavior: <code>resetOffsets=false</code></h2>
+  <p>When <code>resetOffsets</code> is <code>false</code>, normal Kafka <a href="https://kafka.apache.org/documentation/#consumerconfigs_auto.offset.reset" target="_blank"><code>auto.offset.reset</code></a> semantics apply. The critical question is: <strong>is there a committed offset for this consumer group on this partition?</strong></p>
+  <ul>
+    <li><strong>Committed offset exists</strong> → resume from that offset (the normal, expected case for a running app).</li>
+    <li><strong>No committed offset exists</strong> → use <code>startOffset</code> to decide.</li>
+  </ul>
+  <div class="callout primary"><strong>The default <code>startOffset</code> depends on whether you set a group:</strong>
+    <ul>
+      <li>Binding with an explicit <code>group</code> → defaults to <strong><code>earliest</code></strong> (reads existing messages)</li>
+      <li>Anonymous binding (no <code>group</code>) → defaults to <strong><code>latest</code></strong> (only new messages)</li>
+    </ul>
+    This is why a brand-new named consumer group replays the backlog, but an anonymous consumer starts fresh from now.
+  </div>
+
+  <h2>3. When Does "No Committed Offset" Happen?</h2>
+  <p>Two common conditions create a situation with no committed offset:</p>
+  <ol>
+    <li><strong>First-ever startup</strong> with a particular consumer group — nothing has been committed yet.</li>
+    <li><strong>Offset expired.</strong> With modern brokers (2.1+, default broker props), offsets are expired <strong>7 days after the last member leaves the group</strong> (see the <a href="https://kafka.apache.org/documentation/#brokerconfigs_offsets.retention.minutes" target="_blank"><code>offsets.retention.minutes</code></a> broker property). An idle app whose group sat empty for a week loses its place.</li>
+  </ol>
+
+  <h2>4. <code>resetOffsets=true</code>: Force a Seek</h2>
+  <p>When <code>resetOffsets</code> is <code>true</code>, the binder <strong>ignores any current committed offset</strong> and seeks each newly assigned partition to the position dictated by <code>startOffset</code> — as if this binding has never consumed from the topic before.</p>
+  <table>
+    <thead><tr><th><code>startOffset</code></th><th>Effect of <code>resetOffsets=true</code></th><th>Use case</th></tr></thead>
+    <tbody>
+      <tr><td><code>earliest</code></td><td><code>seekToBeginning</code> on all new partitions</td><td>Consume from a <strong>compacted topic</strong> (replay the current key/value state)</td></tr>
+      <tr><td><code>latest</code></td><td><code>seekToEnd</code> on all new partitions</td><td>Consume an <strong>event topic</strong> where you only care about events from now on</td></tr>
+    </tbody>
+  </table>
+
+  <h2>5. A Concrete Application</h2>
+  <pre><code>spring:
+  cloud:
+    stream:
+      bindings:
+        stateConsumer-in-0:
+          destination: compacted-state
+          group: state-reader
+      kafka:
+        bindings:
+          stateConsumer-in-0:
+            consumer:
+              startOffset: earliest
+              resetOffsets: true   # re-seek to beginning on every start</code></pre>
+  <p>Every time this app starts, it performs <code>seekToBeginning</code> — ideal for rebuilding an in-memory snapshot from a compacted topic that holds the latest value per key.</p>
+
+  <h2>6. Two Important Caveats</h2>
+  <div class="callout warning">
+    <strong>1. Rebalance behavior.</strong> If a <em>rebalance</em> occurs after the initial assignment, the seeks are performed <strong>only on newly assigned partitions</strong> — not partitions already assigned at startup. Partitions you already held keep their position.
+  </div>
+  <div class="callout warning">
+    <strong>2. Conflict with rebalance listeners.</strong> If you provide a <a href="https://docs.spring.io/spring-cloud-stream/reference/kafka/kafka-binder/rebalance_listener.html" target="_blank"><code>KafkaBindingRebalanceListener</code></a> for manual offset control, you must <strong>not</strong> set <code>resetOffsets=true</code> — it will cause an error. For full manual control, use the rebalance listener instead of <code>resetOffsets</code>.
+  </div>
+
+  <h2>Assessment</h2>
+  <div class="callout success">
+    <strong>Retrieval Practice:</strong><br><br>
+    1. Name the two properties that govern starting position, and state the role of each (one decides <em>where</em>, the other decides <em>whether</em> to honor it).<br><br>
+    2. With <code>resetOffsets=false</code>, what happens when a committed offset exists versus when none exists? What are the default <code>startOffset</code> values for a named group vs. an anonymous binding?<br><br>
+    3. Name the two conditions under which no committed offset exists for a consumer group, and which broker property controls offset expiration.<br><br>
+    4. With <code>resetOffsets=true</code> and <code>startOffset=earliest</code>, what seek operation runs, and what is a realistic use case for it?<br><br>
+    5. State the two caveats: what happens to seeks after a rebalance, and why must <code>resetOffsets=true</code> not be combined with a <code>KafkaBindingRebalanceListener</code>?
+  </div>
+
+  <h2>Primary Sources</h2>
+  <ul>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/kafka/kafka-binder/reset-offsets.html" target="_blank">Resetting Offsets</a></li>
+    <li><a href="https://kafka.apache.org/documentation/#consumerconfigs_auto.offset.reset" target="_blank">Kafka: auto.offset.reset</a></li>
+    <li><a href="https://kafka.apache.org/documentation/#brokerconfigs_offsets.retention.minutes" target="_blank">Kafka: offsets.retention.minutes</a></li>
+  </ul>
+
+  <div class="lesson-nav">
+    <a href="0023-kafka-binder-configuration.html">← Previous</a>
+    <a href="#">Next lesson → Consuming Batches (Coming Soon)</a>
+  </div>
+
+  <div class="reminder"><strong>Reminder:</strong> This agent is your teacher. Ask a followup question in chat if you want to model a real offset-reset scenario (e.g. backfill, snapshot rebuild) for your application.</div>
+</body>
+</html>

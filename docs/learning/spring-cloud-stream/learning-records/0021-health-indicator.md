@@ -1,0 +1,5 @@
+# Health Indicator
+
+The user studied Spring Cloud Stream's binder health indicator: registered under the name `binders`, integrating with Spring Boot Actuator at `/actuator/health` (requires web + actuator dependencies). The user reviewed enabling/disabling (`management.health.binders.enabled`, enabled by default via `management.health.defaults.enabled`), exposing per-binder details (`management.endpoint.health.show-details=ALWAYS`), the binder-specific nature of health checks, and the critical "unused-binder trap" where an unused Kafka binder on the classpath reports `DOWN` (no destinations registered) and poisons the top-level status. The user also learned how to replace or augment binder indicators with custom `HealthIndicator` beans and how to disable health checks for a subset of binders in multi-binder applications.
+
+**Evidence:** The user completed Lesson 0021 and elected to skip the assessment, moving directly to the next topic (Samples).

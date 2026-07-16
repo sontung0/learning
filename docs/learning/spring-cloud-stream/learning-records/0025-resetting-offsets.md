@@ -1,0 +1,5 @@
+# Resetting Offsets
+
+The user studied how `startOffset` and `resetOffsets` together govern a consumer's starting position. With `resetOffsets=false` (default), normal Kafka `auto.offset.reset` semantics apply: resume from a committed offset if present, otherwise use `startOffset` (default `earliest` for a named group, `latest` for anonymous). The user learned the two conditions where no committed offset exists (first-ever startup, or offset expired after 7 days of group inactivity per `offsets.retention.minutes`). With `resetOffsets=true`, the binder ignores the committed offset and seeks to `startOffset` — `seekToBeginning` for compacted-topic replay, `seekToEnd` for event topics where only new events matter. The user noted the two caveats: seeks only run on newly assigned partitions after a rebalance, and `resetOffsets=true` cannot be combined with a `KafkaBindingRebalanceListener` (use the listener for full manual control instead).
+
+**Evidence:** The user completed Lesson 0024 and elected to skip the assessment, moving directly to the next topic (Consuming Batches).

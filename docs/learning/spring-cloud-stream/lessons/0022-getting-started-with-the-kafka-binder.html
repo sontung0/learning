@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0022 • Getting Started with the Kafka Binder</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0022</span>
+      <span>Apache Kafka Binder • Phase 5</span>
+      <span>~6 min read</span>
+    </div>
+    <h1>Getting Started with the Kafka Binder</h1>
+    <p><em>Add the dependency, and see how Spring Cloud Stream's abstractions map cleanly onto Kafka's native concepts.</em></p>
+  </div>
+
+  <h2>1. Adding the Kafka Binder</h2>
+  <p>You now enter Phase 5: the <strong>Apache Kafka Binder</strong> — the most widely used binder in production. To use it, add one of two Maven dependencies:</p>
+  <pre><code>&lt;!-- Option A: the binder artifact directly --&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.cloud&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-cloud-stream-binder-kafka&lt;/artifactId&gt;
+&lt;/dependency&gt;
+
+&lt;!-- Option B: the Spring Cloud Stream Kafka Starter --&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.cloud&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-cloud-starter-stream-kafka&lt;/artifactId&gt;
+&lt;/dependency&gt;</code></pre>
+  <div class="callout primary"><strong>Which one?</strong> Both pull in the same Kafka binder. The <code>spring-cloud-starter-stream-kafka</code> starter is the conventional choice for new applications — it is the Spring Boot-style starter that transitively brings in everything you need. The <code>spring-cloud-stream-binder-kafka</code> artifact is the bare binder if you want finer control over what's on the classpath.</div>
+
+  <h2>2. The Concept Mapping</h2>
+  <p>One of the reasons the Kafka binder is so natural to use: Spring Cloud Stream's core abstractions map <strong>directly</strong> onto Kafka's native concepts. There is no impedance mismatch to bridge.</p>
+  <table>
+    <thead><tr><th>Spring Cloud Stream concept</th><th>Apache Kafka concept</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Destination</strong></td><td>Kafka <strong>topic</strong></td></tr>
+      <tr><td><strong>Consumer group</strong></td><td>Kafka <strong>consumer group</strong> (identical concept)</td></tr>
+      <tr><td><strong>Partition</strong></td><td>Kafka <strong>partition</strong> (identical concept)</td></tr>
+    </tbody>
+  </table>
+  <p>The binder implementation maps each destination to a Kafka topic. The consumer group maps to the same Kafka concept. Partitioning maps directly to Kafka partitions.</p>
+
+  <h2>3. What This Means in Practice</h2>
+  <p>Because of this direct mapping, everything you learned in Phases 1–4 transfers cleanly:</p>
+  <ul>
+    <li>The functional programming model (<code>Supplier</code>, <code>Function</code>, <code>Consumer</code>) works unchanged — you just set the binder on the classpath.</li>
+    <li>Consumer groups (Lesson 0003): set <code>spring.cloud.stream.bindings.&lt;name&gt;-in-0.group=my-group</code>, and it <em>is</em> a Kafka consumer group.</li>
+    <li>Partitioning (Lesson 0019): Kafka handles partition distribution natively via consumer rebalance by default — <code>instanceCount</code>/<code>instanceIndex</code> are typically <em>not</em> required unless you disable auto-rebalance.</li>
+    <li>Content type negotiation (Lesson 0017): the default <code>application/json</code> works out of the box.</li>
+  </ul>
+
+  <h2>4. Client Version &amp; Broker Compatibility</h2>
+  <p>The binder bundles the Apache Kafka <code>kafka-clients</code> library. The client can communicate with older brokers, but certain features depend on the broker version:</p>
+  <table>
+    <thead><tr><th>Broker version</th><th>Feature limitation</th></tr></thead>
+    <tbody>
+      <tr><td>Earlier than 0.11.x.x</td><td><strong>Native headers are not supported</strong></td></tr>
+      <tr><td>0.11.x.x</td><td>The <code>autoAddPartitions</code> property is <strong>not</strong> supported</td></tr>
+    </tbody>
+  </table>
+  <div class="callout warning"><strong>Check your broker version.</strong> If you're targeting an older Kafka cluster, some binder features may silently not work. Modern Kafka brokers (2.x+) support all features.</div>
+
+  <h2>Assessment</h2>
+  <div class="callout success">
+    <strong>Retrieval Practice:</strong><br><br>
+    1. Name the two Maven dependency options for adding the Kafka binder. Which is the conventional choice for new Spring Boot applications?<br><br>
+    2. How does the Kafka binder map each of these three Spring Cloud Stream concepts: <em>destination</em>, <em>consumer group</em>, and <em>partition</em>?<br><br>
+    3. Because of this direct mapping, are <code>instanceCount</code> and <code>instanceIndex</code> typically required for the Kafka binder? Under what condition would they become required?<br><br>
+    4. What does the default content type configuration give you out of the box when using the Kafka binder?<br><br>
+    5. For Kafka brokers earlier than 0.11.x.x, which two binder features are unavailable?
+  </div>
+
+  <h2>Primary Sources</h2>
+  <ul>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/kafka/kafka-binder/usage.html" target="_blank">Usage (Kafka Binder)</a></li>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/kafka/kafka-binder/overview.html" target="_blank">Overview (Kafka Binder)</a></li>
+  </ul>
+
+  <div class="lesson-nav">
+    <a href="0021-health-indicator.html">← Previous</a>
+    <a href="#">Next lesson → Kafka Binder Configuration Options (Coming Soon)</a>
+  </div>
+
+  <div class="reminder"><strong>Reminder:</strong> This agent is your teacher. Ask a followup question in chat if you want to scaffold a real Kafka-binder project and pick the right dependency.</div>
+</body>
+</html>

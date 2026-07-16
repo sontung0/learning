@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0023 • Kafka Binder Configuration</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0023</span>
+      <span>Apache Kafka Binder • Phase 5</span>
+      <span>~12 min read</span>
+    </div>
+    <h1>Kafka Binder Configuration</h1>
+    <p><em>Three namespaces, one mental model: binder-wide, per-consumer, per-producer. Know the defaults and you can configure almost anything.</em></p>
+  </div>
+
+  <h2>1. The Three Configuration Namespaces</h2>
+  <p>Kafka-specific properties live under the <code>spring.cloud.stream.kafka</code> prefix, in three distinct scopes. Each answers a different question:</p>
+  <table>
+    <thead><tr><th>Namespace</th><th>Scope</th><th>Answers</th></tr></thead>
+    <tbody>
+      <tr><td><code>kafka.binder.*</code></td><td><strong>Binder-wide</strong> — all clients</td><td>"What broker am I connecting to? How are topics auto-created?"</td></tr>
+      <tr><td><code>kafka.bindings.&lt;name&gt;.consumer.*</code></td><td><strong>Per consumer binding</strong></td><td>"How does this consumer commit offsets, handle errors, reset?"</td></tr>
+      <tr><td><code>kafka.bindings.&lt;name&gt;.producer.*</code></td><td><strong>Per producer binding</strong></td><td>"Does this producer set keys, compress, run sync?"</td></tr>
+    </tbody>
+  </table>
+  <div class="callout primary"><strong>Namespace rule:</strong> portable properties (destination, group, content-type) live in the core <code>stream.bindings.*</code> namespace (Lesson 0016). <em>Kafka-only</em> properties live in the <code>kafka.bindings.*</code> namespace — never mix them.</div>
+  <p>You can also set a default across all channels: <code>spring.cloud.stream.kafka.default.consumer.&lt;property&gt;=&lt;value&gt;</code> or <code>...default.producer...</code> — avoiding repetition when all bindings share a Kafka-specific setting.</p>
+
+  <h2>2. Binder-Wide Properties (The Essentials)</h2>
+  <table>
+    <thead><tr><th>Property</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>brokers</code></td><td><code>localhost</code></td><td>Broker addresses (comma-separated; host or host:port)</td></tr>
+      <tr><td><code>defaultBrokerPort</code></td><td><code>9092</code></td><td>Port used when <code>brokers</code> omits a port</td></tr>
+      <tr><td><code>autoCreateTopics</code></td><td><code>true</code></td><td>Binder creates topics if they don't exist. If <code>false</code>, binder <strong>fails to start</strong> on a missing topic</td></tr>
+      <tr><td><code>autoAddPartitions</code></td><td><code>false</code></td><td>If <code>true</code>, binder increases partition count when needed. If <code>false</code> and topic has too few partitions, binder <strong>fails to start</strong></td></tr>
+      <tr><td><code>minPartitionCount</code></td><td><code>1</code></td><td>Minimum partitions on auto-created topics; superseded by larger of producer <code>partitionCount</code> or <code>instanceCount × concurrency</code></td></tr>
+      <tr><td><code>replicationFactor</code></td><td><code>-1</code></td><td>Replicas for auto-created topics. <code>-1</code> = use broker's <code>default.replication.factor</code></td></tr>
+      <tr><td><code>requiredAcks</code></td><td><code>all</code></td><td>Producer acks setting (maps to Kafka <code>acks</code>)</td></tr>
+    </tbody>
+  </table>
+  <div class="callout warning"><strong>Topic provisioning gotcha:</strong> if <code>autoAddPartitions</code> is <code>false</code> (the default) and an existing topic has <em>fewer</em> partitions than the binder expects (max of <code>minPartitionCount</code> or <code>partitionCount</code>), the binder <strong>fails to start</strong>. This is a very common startup failure — know where to look.</div>
+
+  <h2>2.5. Client Property Maps</h2>
+  <p>Three map properties let you pass raw Kafka client properties straight through:</p>
+  <table>
+    <thead><tr><th>Property</th><th>Applies to</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>kafka.binder.configuration</code></td><td>Both producers &amp; consumers</td><td>Use for <em>common</em> client settings (e.g. security). Unknown props are <strong>filtered out</strong> here</td></tr>
+      <tr><td><code>kafka.binder.consumerProperties</code></td><td>All consumers</td><td>Unknown consumer props <em>are</em> allowed; supersedes <code>configuration</code></td></tr>
+      <tr><td><code>kafka.binder.producerProperties</code></td><td>All producers</td><td>Unknown producer props <em>are</em> allowed; supersedes <code>configuration</code></td></tr>
+    </tbody>
+  </table>
+  <p>At the per-binding level, each consumer/producer also has its own <code>configuration</code> map for that binding alone.</p>
+
+  <h2>3. Consumer Properties (The Essentials)</h2>
+  <table>
+    <thead><tr><th>Property</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>autoRebalanceEnabled</code></td><td><code>true</code></td><td>When <code>false</code>, partitions are fixed via <code>instanceCount</code>/<code>instanceIndex</code> (Lesson 0019)</td></tr>
+      <tr><td><code>autoCommitOffset</code></td><td><code>true</code></td><td>Commit offsets after processing. <code>false</code> → manual ack via <code>kafka_acknowledgment</code> header. <em>Deprecated since 3.1 — prefer <code>ackMode</code></em></td></tr>
+      <tr><td><code>ackMode</code></td><td>—</td><td>Spring Kafka <code>AckMode</code> enum (replaces <code>autoCommitOffset</code>/<code>ackEachRecord</code>)</td></tr>
+      <tr><td><code>startOffset</code></td><td><code>earliest</code>*</td><td>Where a <em>new</em> group begins: <code>earliest</code> or <code>latest</code>. *Named group defaults to <code>earliest</code>; anonymous group defaults to <code>latest</code></td></tr>
+      <tr><td><code>resetOffsets</code></td><td><code>false</code></td><td>Reset consumer offsets to <code>startOffset</code> on startup. Must be <code>false</code> if a rebalance listener is provided</td></tr>
+      <tr><td><code>enableDlq</code></td><td><code>false</code></td><td>Send failed records to a dead-letter topic (default name <code>error.&lt;destination&gt;.&lt;group&gt;</code>)</td></tr>
+      <tr><td><code>dlqName</code></td><td><code>null</code></td><td>Custom DLQ topic name</td></tr>
+    </tbody>
+  </table>
+  <div class="callout primary"><strong>Start offset defaults matter.</strong> A consumer in a <em>named</em> group (set <code>group</code>) starts at <code>earliest</code> — it reads existing messages. An <em>anonymous</em> consumer (no group) starts at <code>latest</code> — it sees only messages arriving after it connects. This is a frequent source of "where did my messages go?" confusion.</div>
+
+  <h2>4. Producer Properties (The Essentials)</h2>
+  <table>
+    <thead><tr><th>Property</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>messageKeyExpression</code></td><td><code>none</code></td><td>SpEL to set the Kafka message key (e.g. <code>headers['myKey']</code>). To pass through the incoming key: <code>headers['kafka_receivedMessageKey']</code></td></tr>
+      <tr><td><code>sync</code></td><td><code>false</code></td><td>Synchronous sends — wait for ack per send (slower, safer order)</td></tr>
+      <tr><td><code>compression</code></td><td><code>none</code></td><td><code>none</code>, <code>gzip</code>, <code>snappy</code>, <code>lz4</code>, or <code>zstd</code></td></tr>
+      <tr><td><code>headerPatterns</code></td><td><code>*</code></td><td>Which Spring messaging headers map to Kafka headers (e.g. <code>!secret,*</code>); <code>id</code> and <code>timestamp</code> are never mapped</td></tr>
+      <tr><td><code>useTopicHeader</code></td><td><code>false</code></td><td><code>true</code> → override destination with the <code>KafkaHeaders.TOPIC</code> header per-message (dynamic topic routing)</td></tr>
+      <tr><td><code>recordMetadataChannel</code></td><td><code>null</code></td><td>Channel to receive <code>RecordMetadata</code> (offset/partition) for successful sends</td></tr>
+    </tbody>
+  </table>
+
+  <h2>5. Topic Property Maps Everywhere</h2>
+  <p>Both consumer and producer bindings expose <code>topic.properties</code>, <code>topic.replication-factor</code>, and <code>topic.replicas-assignment</code> — used when the binder <em>provisions</em> (auto-creates) a topic. These override binder-wide settings for a single binding.</p>
+
+  <h2>6. The Full Reference</h2>
+  <div class="callout success">For the complete, scannable property list with every default, see the companion reference: <a href="../reference/kafka-binder-configuration.html">Kafka Binder Configuration Reference</a>. Bookmark it — it's designed for quick lookup.</div>
+
+  <h2>Assessment</h2>
+  <div class="callout success">
+    <strong>Retrieval Practice:</strong><br><br>
+    1. Name the three Kafka configuration namespaces and the scope of each (binder-wide, per-consumer, per-producer). Where do <em>portable</em> properties like destination and group live instead?<br><br>
+    2. What are the defaults for <code>autoCreateTopics</code>, <code>autoAddPartitions</code>, and <code>minPartitionCount</code>? Describe the scenario where these defaults cause the binder to fail at startup.<br><br>
+    3. What is the difference between the three client-property maps (<code>configuration</code>, <code>consumerProperties</code>, <code>producerProperties</code>) in terms of which clients they affect and whether unknown properties are filtered?<br><br>
+    4. What is the default <code>startOffset</code> for a consumer in a <em>named</em> group vs an <em>anonymous</em> group? Why does this matter in practice?<br><br>
+    5. Name three producer properties and their defaults. Which property would you set to route messages to a per-message dynamic topic?
+  </div>
+
+  <h2>Primary Sources</h2>
+  <ul>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/kafka/kafka-binder/config-options.html" target="_blank">Configuration Options (Kafka Binder)</a></li>
+    <li><a href="../reference/kafka-binder-configuration.html">Companion: Kafka Binder Configuration Reference</a></li>
+  </ul>
+
+  <div class="lesson-nav">
+    <a href="0022-getting-started-with-the-kafka-binder.html">← Previous</a>
+    <a href="#">Next lesson → Resetting Offsets (Coming Soon)</a>
+  </div>
+
+  <div class="reminder"><strong>Reminder:</strong> This agent is your teacher. Ask a followup question in chat if you want help wiring up a real <code>application.yml</code> for a Kafka binder scenario from your domain.</div>
+</body>
+</html>

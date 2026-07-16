@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kafka Binder Configuration Reference</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span>Reference Document</span>
+      <span>Apache Kafka Binder • Phase 5</span>
+    </div>
+    <h1>Kafka Binder Configuration Reference</h1>
+    <p><em>The complete scannable property table. Bookmark for quick lookup.</em></p>
+  </div>
+
+  <p>Prefix <code>spring.cloud.stream.kafka.binder.*</code> unless noted. Portable properties (destination, group, content-type, etc.) live under <code>spring.cloud.stream.bindings.*</code> — see core docs.</p>
+
+  <h2>Kafka Binder Properties (binder-wide)</h2>
+  <table>
+    <thead><tr><th>Property</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>brokers</code></td><td><code>localhost</code></td><td>Broker addresses (comma-separated; host or host:port)</td></tr>
+      <tr><td><code>defaultBrokerPort</code></td><td><code>9092</code></td><td>Port when <code>brokers</code> omits a port</td></tr>
+      <tr><td><code>configuration</code></td><td>Empty map</td><td>Raw Kafka client props for both producers &amp; consumers. <strong>Unknown props are filtered out.</strong> Use for common props (e.g. security). Supersedes Boot props</td></tr>
+      <tr><td><code>consumerProperties</code></td><td>Empty map</td><td>Raw Kafka consumer props. Unknown props allowed. Supersedes <code>configuration</code> and Boot</td></tr>
+      <tr><td><code>producerProperties</code></td><td>Empty map</td><td>Raw Kafka producer props. Unknown props allowed. Supersedes <code>configuration</code> and Boot</td></tr>
+      <tr><td><code>headers</code></td><td>empty</td><td>Custom headers list. Only for legacy apps (≤1.3.x) with <code>kafka-clients</code> &lt; 0.11.0.0. Modern versions support headers natively</td></tr>
+      <tr><td><code>healthTimeout</code></td><td><code>60</code></td><td>Seconds to wait for partition info before health reports DOWN</td></tr>
+      <tr><td><code>requiredAcks</code></td><td><code>all</code></td><td>Producer <code>acks</code> setting</td></tr>
+      <tr><td><code>minPartitionCount</code></td><td><code>1</code></td><td>Min partitions on auto-created topics. Superseded by max of producer <code>partitionCount</code> or <code>instanceCount × concurrency</code></td></tr>
+      <tr><td><code>replicationFactor</code></td><td><code>-1</code></td><td>Replicas for auto-created topics. <code>-1</code> = use broker default.replication.factor. For Kafka &lt; 2.4, set ≥ 1</td></tr>
+      <tr><td><code>autoCreateTopics</code></td><td><code>true</code></td><td>Binder creates missing topics. <code>false</code> → fails to start if topic missing. Independent of broker's <code>auto.create.topics.enable</code></td></tr>
+      <tr><td><code>autoAddPartitions</code></td><td><code>false</code></td><td><code>true</code> → increases partitions if needed. <code>false</code> + too few partitions → fails to start</td></tr>
+      <tr><td><code>transaction.transactionIdPrefix</code></td><td><code>null</code></td><td>Enables transactions. When set, all producers use <code>transaction.producer.*</code> properties; individual producer props ignored</td></tr>
+      <tr><td><code>transaction.producer.*</code></td><td>—</td><td>Global producer props for transactional binder</td></tr>
+      <tr><td><code>headerMapperBeanName</code></td><td>none</td><td>Bean name of <code>KafkaHeaderMapper</code> for header mapping. Falls back to <code>kafkaBinderHeaderMapper</code> bean, then default</td></tr>
+      <tr><td><code>considerDownWhenAnyPartitionHasNoLeader</code></td><td><code>true</code></td><td>Health DOWN if any partition has no leader</td></tr>
+      <tr><td><code>certificateStoreDirectory</code></td><td>none</td><td>Dir to copy non-local certs to. Defaults to <code>java.io.tmpdir</code> if unset or dir not writable</td></tr>
+      <tr><td><code>metrics.defaultOffsetLagMetricsEnabled</code></td><td><code>true</code></td><td>Compute offset lag on every metric access. <code>false</code> → use only periodic lag</td></tr>
+      <tr><td><code>metrics.offsetLagMetricsInterval</code></td><td><code>60s</code></td><td>Interval for periodic offset lag computation</td></tr>
+      <tr><td><code>enableObservation</code></td><td><code>false</code></td><td>Enable Micrometer observation on all bindings</td></tr>
+      <tr><td><code>healthIndicatorConsumerGroup</code></td><td>none</td><td><code>group.id</code> for the metadata consumer used by the health indicator</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Kafka Consumer Properties</h2>
+  <p>Prefix: <code>spring.cloud.stream.kafka.bindings.&lt;channelName&gt;.consumer.*</code><br>
+     Default-all: <code>spring.cloud.stream.kafka.default.consumer.&lt;property&gt;=&lt;value&gt;</code></p>
+  <table>
+    <thead><tr><th>Property</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>autoRebalanceEnabled</code></td><td><code>true</code></td><td><code>false</code> → partitions fixed via <code>instanceCount</code>/<code>instanceIndex</code> (both must be set, <code>instanceCount</code> typically &gt; 1)</td></tr>
+      <tr><td><code>ackEachRecord</code></td><td><code>false</code></td><td>Commit after each record (vs. per batch). Reduces redelivery risk on failure. <em>Deprecated since 3.1 — use <code>ackMode</code></em></td></tr>
+      <tr><td><code>autoCommitOffset</code></td><td><code>true</code></td><td>Auto-commit offset after processing. <code>false</code> → <code>kafka_acknowledgment</code> header for manual ack (binder sets <code>MANUAL</code> ackmode). <em>Deprecated since 3.1 — use <code>ackMode</code></em></td></tr>
+      <tr><td><code>ackMode</code></td><td>—</td><td>Spring Kafka <code>AckMode</code> enum. If <code>ackEachRecord=true</code> &amp; not batch mode → <code>RECORD</code></td></tr>
+      <tr><td><code>autoCommitOnError</code></td><td>not set</td><td>Pollable consumers: <code>true</code> → always auto-commit on error. Pollable consumers only</td></tr>
+      <tr><td><code>resetOffsets</code></td><td><code>false</code></td><td>Reset offsets to <code>startOffset</code> on startup. Must be <code>false</code> if a rebalance listener is provided</td></tr>
+      <tr><td><code>startOffset</code></td><td><code>earliest</code>*</td><td>New groups start here: <code>earliest</code> or <code>latest</code>. *Named group → <code>earliest</code>; anonymous group → <code>latest</code>. See <a href="https://docs.spring.io/spring-cloud-stream/reference/kafka/kafka-binder/reset-offsets.html" target="_blank">Reset Offsets</a></td></tr>
+      <tr><td><code>enableDlq</code></td><td><code>false</code></td><td>Send failed records to DLQ topic (default <code>error.&lt;destination&gt;.&lt;group&gt;</code>). Adds headers: <code>x-original-topic</code>, <code>x-exception-message</code>, <code>x-exception-stacktrace</code>. Not allowed if <code>destinationIsPattern=true</code></td></tr>
+      <tr><td><code>dlqPartitions</code></td><td>none</td><td>If unset → same partition count as primary. <code>1</code> + no <code>DlqPartitionFunction</code> → all to partition 0. If &gt; 1, must provide <code>DlqPartitionFunction</code></td></tr>
+      <tr><td><code>configuration</code></td><td>Empty map</td><td>Raw Kafka consumer props for this binding. <code>bootstrap.servers</code> cannot be set here (use multi-binder)</td></tr>
+      <tr><td><code>dlqName</code></td><td>null</td><td>Custom DLQ topic name</td></tr>
+      <tr><td><code>dlqProducerProperties</code></td><td>Default producer props</td><td>DLQ-specific producer props. If native decoding enabled, must provide serializers via <code>dlqProducerProperties.configuration.key.serializer</code> / <code>value.serializer</code></td></tr>
+      <tr><td><code>standardHeaders</code></td><td><code>none</code></td><td>Populate standard headers: <code>none</code>, <code>id</code>, <code>timestamp</code>, or <code>both</code></td></tr>
+      <tr><td><code>converterBeanName</code></td><td>null</td><td>Bean implementing <code>RecordMessageConverter</code> to replace default</td></tr>
+      <tr><td><code>idleEventInterval</code></td><td><code>30000</code></td><td>ms between idle events (no messages received) — receive via <code>ApplicationListener&lt;ListenerContainerIdleEvent&gt;</code></td></tr>
+      <tr><td><code>destinationIsPattern</code></td><td><code>false</code></td><td><code>true</code> → destination is a regex <code>Pattern</code> matching topic names. Topics not provisioned; DLQ not allowed. Detection controlled by consumer <code>metadata.max.age.ms</code> (default 5 min)</td></tr>
+      <tr><td><code>topic.properties</code></td><td>none</td><td>Map of Kafka topic props for provisioning</td></tr>
+      <tr><td><code>topic.replicas-assignment</code></td><td>none</td><td><code>Map&lt;Integer, List&lt;Integer&gt;&gt;</code> of replica assignments for provisioning</td></tr>
+      <tr><td><code>topic.replication-factor</code></td><td>none</td><td>Per-binding replication factor for provisioning. Overrides binder-wide. Ignored if <code>replicas-assignment</code> present</td></tr>
+      <tr><td><code>pollTimeout</code></td><td><code>5s</code></td><td>Timeout for polling in pollable consumers</td></tr>
+      <tr><td><code>transactionManager</code></td><td>none</td><td>Bean name of <code>KafkaAwareTransactionManager</code> to override binder's. For exactly-once, consumer &amp; producer must share same</td></tr>
+      <tr><td><code>txCommitRecovered</code></td><td><code>true</code></td><td>Transactional binder: when retries exhausted &amp; record sent to DLQ, commit the recovered record's offset via new transaction. <code>false</code> suppresses</td></tr>
+      <tr><td><code>commonErrorHandlerBeanName</code></td><td>none</td><td><code>CommonErrorHandler</code> bean name. Takes precedence over binder error handlers. Avoids needing a <code>ListenerContainerCustomizer</code> with destination/group checks</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Kafka Producer Properties</h2>
+  <p>Prefix: <code>spring.cloud.stream.kafka.bindings.&lt;channelName&gt;.producer.*</code><br>
+     Default-all: <code>spring.cloud.stream.kafka.default.producer.&lt;property&gt;=&lt;value&gt;</code></p>
+  <table>
+    <thead><tr><th>Property</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>bufferSize</code></td><td><code>16384</code></td><td>Upper limit (bytes) producer batches before sending</td></tr>
+      <tr><td><code>sync</code></td><td><code>false</code></td><td>Synchronous sends (wait for ack per send)</td></tr>
+      <tr><td><code>sendTimeoutExpression</code></td><td>none</td><td>SpEL evaluating to ms to wait for ack when sync (e.g. <code>headers['mySendTimeout']</code>). Evaluated before payload conversion since 3.0</td></tr>
+      <tr><td><code>batchTimeout</code></td><td><code>0</code></td><td>ms producer waits to accumulate batch. Non-zero → higher throughput, higher latency</td></tr>
+      <tr><td><code>messageKeyExpression</code></td><td>none</td><td>SpEL for Kafka message key. Pass-through key: <code>headers['kafka_receivedMessageKey']</code>. For reactive functions, copy headers manually or set <code>KafkaHeaders.MESSAGE_KEY</code></td></tr>
+      <tr><td><code>headerPatterns</code></td><td><code>*</code></td><td>Comma-delimited patterns (with <code>*</code> wildcards, <code>!</code> negation) for which Spring headers → Kafka headers. <code>id</code> and <code>timestamp</code> never mapped</td></tr>
+      <tr><td><code>configuration</code></td><td>Empty map</td><td>Raw Kafka producer props for this binding. <code>bootstrap.servers</code> cannot be set here</td></tr>
+      <tr><td><code>topic.properties</code></td><td>none</td><td>Map of Kafka topic props for provisioning</td></tr>
+      <tr><td><code>topic.replicas-assignment</code></td><td>none</td><td><code>Map&lt;Integer, List&lt;Integer&gt;&gt;</code> of replica assignments</td></tr>
+      <tr><td><code>topic.replication-factor</code></td><td>none</td><td>Per-binding replication factor for provisioning</td></tr>
+      <tr><td><code>useTopicHeader</code></td><td><code>false</code></td><td><code>true</code> → override destination with <code>KafkaHeaders.TOPIC</code> header (dynamic topic routing)</td></tr>
+      <tr><td><code>recordMetadataChannel</code></td><td>null</td><td>MessageChannel bean for successful send results (message includes <code>KafkaHeaders.RECORD_METADATA</code> with offset/partition). Failed sends → producer error channel</td></tr>
+      <tr><td><code>compression</code></td><td><code>none</code></td><td>compression.type: <code>none</code>, <code>gzip</code>, <code>snappy</code>, <code>lz4</code>, <code>zstd</code></td></tr>
+      <tr><td><code>transactionManager</code></td><td>none</td><td><code>KafkaAwareTransactionManager</code> bean name. For exactly-once, share with consumer binding</td></tr>
+      <tr><td><code>closeTimeout</code></td><td><code>30</code></td><td>Seconds to wait when closing producer</td></tr>
+      <tr><td><code>allowNonTransactional</code></td><td><code>false</code></td><td>Transactional binder: <code>true</code> → this binding publishes non-transactionally unless a tx is already in process</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Partition Count Logic (Important!)</h2>
+  <div class="callout warning">
+    The binder uses the <strong>maximum</strong> of <code>minPartitionCount</code> and producer <code>partitionCount</code> as the target partition count when provisioning a topic.
+    <ul>
+      <li>Existing topic, fewer partitions than target + <code>autoAddPartitions=false</code> (<strong>default</strong>) → <strong>binder fails to start</strong></li>
+      <li>Existing topic, fewer partitions + <code>autoAddPartitions=true</code> → new partitions added</li>
+      <li>Existing topic, more partitions than target → existing count used (no shrinkage)</li>
+    </ul>
+  </div>
+
+  <h2>Primary Source</h2>
+  <ul>
+    <li><a href="https://docs.spring.io/spring-cloud-stream/reference/kafka/kafka-binder/config-options.html" target="_blank">Configuration Options (Kafka Binder)</a></li>
+  </ul>
+
+  <div class="lesson-nav">
+    <a href="../lessons/0023-kafka-binder-configuration.html">← Back to Lesson 0023</a>
+  </div>
+</body>
+</html>
