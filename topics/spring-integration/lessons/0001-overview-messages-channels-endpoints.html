@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0001 • Overview — Messages, Channels &amp; Endpoints</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0001</span>
+      <span>Phase 1 • Overview</span>
+      <span>~10 min</span>
+    </div>
+    <h1>Overview: Messages, Channels &amp; Endpoints</h1>
+    <p><em>The three nouns every Spring Integration flow is built from — and why the framework lives inside your app instead of a separate server.</em></p>
+  </div>
+
+  <h2>The one idea to hold onto</h2>
+
+  <p>Spring Integration is Spring's implementation of the
+  <a href="https://www.enterpriseintegrationpatterns.com/" target="_blank">Enterprise Integration Patterns</a>
+  (EIP). It brings <strong>message-driven, pipes-and-filters</strong> design into an ordinary Spring
+  <code>ApplicationContext</code>. Instead of your business code calling the next
+  system directly, components hand <strong>messages</strong> to each other through
+  <strong>channels</strong>, and your POJOs are wired in by <strong>endpoints</strong>. The framework
+  handles routing, transformation, and scheduling; your code stays focused on the domain.
+  <a href="https://docs.spring.io/spring-integration/reference/overview.html" target="_blank">[ref]</a></p>
+
+  <div class="callout primary">
+    <strong>Mission tie-in:</strong> Your goal is to design production integrations independently.
+    Every pattern you will learn later — routers, splitters, aggregators, adapters — is just a
+    special kind of <em>endpoint</em> reading from and writing to <em>channels</em>, moving
+    <em>messages</em>. Nail these three nouns now and the whole reference falls into place.
+  </div>
+
+  <h2>Application-centric, not a central ESB</h2>
+
+  <p>A traditional <strong>Enterprise Service Bus</strong> (Mule, TIBCO, BizTalk) is a heavy,
+  centralized runtime: applications connect as spokes to a hub you must patch, scale, and babysit.
+  That hub is an operational bottleneck and a single point of failure.</p>
+
+  <p>Spring Integration takes the opposite stance — <strong>application-centric and embedded</strong>:</p>
+  <ul>
+    <li><strong>No dedicated integration server.</strong> Channels, endpoints, and transformers are
+        just Spring beans living in your app's context.</li>
+    <li><strong>Decentralized.</strong> Integration logic scales alongside your app instances,
+        monolith or microservice.</li>
+    <li><strong>POJO-based &amp; testable.</strong> Because "everything is just Spring beans," flows
+        unit-test with ordinary Spring test tooling — no middleware container to spin up.</li>
+  </ul>
+  <p><a href="https://docs.spring.io/spring-integration/reference/overview.html" target="_blank">[ref: Architectural Positioning]</a></p>
+
+  <h2>The three main components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Component</th><th>Pipes-and-filters role</th><th>What it is</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Message</strong></td>
+        <td>The thing that flows</td>
+        <td>A generic wrapper: a <strong>payload</strong> (any Java object) plus <strong>headers</strong>
+            (id, timestamp, correlationId, return address, and any key/value you add).</td>
+      </tr>
+      <tr>
+        <td><strong>Message Channel</strong></td>
+        <td>The "pipe"</td>
+        <td>Decouples producer from consumer. Can be <strong>point-to-point</strong> (one consumer per
+            message) or <strong>publish-subscribe</strong> (all subscribers). Can be
+            <strong>subscribable</strong> (message-driven) or <strong>pollable</strong> (buffers in a
+            queue; needs a poller).</td>
+      </tr>
+      <tr>
+        <td><strong>Message Endpoint</strong></td>
+        <td>The "filter"</td>
+        <td>Connects your application code to the messaging system <em>non-invasively</em> — like an
+            MVC controller for messages. Your POJO stays unaware of <code>Message</code> and
+            <code>MessageChannel</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>Endpoints come in the flavours you'll spend the coming lessons on:
+  <strong>transformer</strong>, <strong>filter</strong>, <strong>router</strong>,
+  <strong>splitter</strong>, <strong>aggregator</strong>, <strong>service activator</strong>, and
+  <strong>channel adapter</strong> (inbound/outbound, connecting the flow to an external system or
+  transport).
+  <a href="https://docs.spring.io/spring-integration/reference/overview.html" target="_blank">[ref: Message Endpoints]</a></p>
+
+  <div class="callout warning">
+    <strong>Terminology trap:</strong> the pipes-and-filters "filter" means <em>any</em> endpoint
+    (a filter is a component connected to a channel). The EIP <strong>Message Filter</strong> is the
+    specific endpoint that decides whether a message passes at all. Same word, two meanings.
+  </div>
+
+  <h2>Wiring it up: <code>@EnableIntegration</code> and POJO methods</h2>
+
+  <p>With pure Java config (i.e. Spring Boot), you must register the framework's infrastructure beans
+  with <code>@EnableIntegration</code>. It installs the built-in <code>errorChannel</code>, the
+  <code>taskScheduler</code> pollers use, annotation processors, and more.
+  <a href="https://docs.spring.io/spring-integration/reference/overview.html" target="_blank">[ref: @EnableIntegration]</a></p>
+
+  <blockquote>Spring Boot's <code>spring-boot-starter-integration</code> applies
+  <code>@EnableIntegration</code> for you via auto-configuration — which is why the sandbox below just
+  works.</blockquote>
+
+  <p>You then write plain methods. The framework extracts the payload, invokes your method, and wraps
+  the return value back into a message for the next component (copying the original headers):</p>
+
+  <pre><code>@ServiceActivator(inputChannel = "greetings")
+public String myService(String payload) {
+    return "Hello, " + payload;
+}</code></pre>
+
+  <p>You can pull headers in too, without touching the <code>Message</code> type:</p>
+
+  <pre><code>@ServiceActivator(inputChannel = "greetings")
+public String myService(@Payload String payload, @Header("locale") String locale) {
+    return greet(payload, locale);
+}</code></pre>
+  <p><a href="https://docs.spring.io/spring-integration/reference/overview.html" target="_blank">[ref: POJO Method invocation]</a></p>
+
+  <h2>Code along (sandbox)</h2>
+
+  <p>Your first runnable flow: a <code>QueueChannel</code> (a pollable channel), a
+  <code>@ServiceActivator</code> POJO subscribed to it via a poller, and a
+  <code>CommandLineRunner</code> that sends one message in. Watch the log line the service activator
+  produces.</p>
+
+  <p>The code lives in <code>sandbox/src/main/java/com/learning/si/lesson0001/</code>, guarded by the
+  <code>lesson0001</code> profile. Run it:</p>
+
+  <pre><code>cd topics/spring-integration/sandbox
+./mvnw spring-boot:run -Dspring-boot.run.profiles=lesson0001</code></pre>
+
+  <p>You should see the message arrive, get handled by your POJO, and the greeting logged — a message
+  flowing through a channel into an endpoint. That is the entire framework in miniature.</p>
+
+  <h2>Primary source</h2>
+  <p>The single best thing to read for this lesson is the reference chapter it is built from:</p>
+  <p><a href="https://docs.spring.io/spring-integration/reference/overview.html" target="_blank">
+  Overview of Spring Integration Framework</a> — read <em>Main Components</em>,
+  <em>Message Endpoints</em>, and <em>POJO Method invocation</em>.</p>
+  <p>Quick reference: <a href="../reference/0001-core-concepts.html">Core Concepts &amp; Glossary (Lesson 0001)</a>.</p>
+
+  <h2>Assessment — retrieve everything</h2>
+
+  <div class="assessment">
+    <p>Answer each without scrolling up. Click an option to check yourself.</p>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">In pipes-and-filters terms, a message channel is the ____ and an endpoint is the ____.</p>
+      <ul class="quiz-options">
+        <li data-correct="true">pipe; filter</li>
+        <li>filter; pipe</li>
+        <li>payload; header</li>
+        <li>broker; adapter</li>
+      </ul>
+      <p class="quiz-explain">Channels are the pipes that transport messages; endpoints are the filters that produce or consume them.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">A Spring Integration message is composed of exactly which two parts?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">A payload and headers</li>
+        <li>A body and a footer</li>
+        <li>A channel and a poller</li>
+        <li>A producer and consumer</li>
+      </ul>
+      <p class="quiz-explain">Payload = any Java object; headers = metadata like id, timestamp, correlationId, return address.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which statement best describes Spring Integration's architecture?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">Application-centric beans embedded in the app context</li>
+        <li>A centralized hub-and-spoke integration server</li>
+        <li>A proprietary graphical orchestration engine</li>
+        <li>A standalone broker replacing Kafka entirely</li>
+      </ul>
+      <p class="quiz-explain">Components are ordinary Spring beans in the ApplicationContext — no external ESB to administer.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">A pollable channel differs from a subscribable channel because it ____.</p>
+      <ul class="quiz-options">
+        <li data-correct="true">buffers messages and needs a poller</li>
+        <li>always broadcasts to every consumer</li>
+        <li>cannot ever store a payload</li>
+        <li>requires a centralized message broker</li>
+      </ul>
+      <p class="quiz-explain">Pollable channels queue messages (throttling the consumer); a consumer reads them only via a configured poller.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Why is <code>@EnableIntegration</code> required with pure Java configuration?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">It registers the framework's infrastructure beans</li>
+        <li>It opens a network port for the broker</li>
+        <li>It converts every POJO into a channel</li>
+        <li>It disables Spring Boot auto-configuration</li>
+      </ul>
+      <p class="quiz-explain">It installs errorChannel, the taskScheduler, annotation processors, and more. Boot's integration starter applies it for you.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">When a <code>@ServiceActivator</code> POJO returns a value, the framework ____.</p>
+      <ul class="quiz-options">
+        <li data-correct="true">wraps it in a message for the next component</li>
+        <li>discards it because handlers are one-way</li>
+        <li>writes it directly to the error channel</li>
+        <li>throws unless you return a raw Message</li>
+      </ul>
+      <p class="quiz-explain">It wraps the return value into a reply message (copying original headers) and sends it to the output/return channel.</p>
+    </div>
+
+    <p><strong>Written recall (say it out loud):</strong> name the seven endpoint types the Overview lists,
+    and explain the difference between the pipes-and-filters "filter" and the EIP Message Filter.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <span></span>
+    <a href="0002-core-messaging.html">Next lesson → Core Messaging</a>
+  </div>
+
+  <div class="reminder">
+    <strong>Reminder:</strong> I'm your teacher for this track. If any of this is fuzzy — pollable vs
+    subscribable, why headers matter, how the poller fits — ask a followup in chat and we'll dig in
+    before moving to Lesson 0002.
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reference • Core Concepts &amp; Glossary</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Reference</span>
+      <span>Core Concepts &amp; Glossary</span>
+    </div>
+    <h1>Core Concepts &amp; Glossary</h1>
+    <p><em>The compressed vocabulary of Spring Integration. Every later lesson assumes these terms.
+    Keep this open.</em></p>
+  </div>
+
+  <h2>The three nouns</h2>
+  <table>
+    <thead><tr><th>Term</th><th>One-liner</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Message</strong></td><td>Payload (any object) + headers (metadata). The unit that flows.</td></tr>
+      <tr><td><strong>Channel</strong></td><td>The pipe. Decouples producer/consumer; point of interception &amp; monitoring.</td></tr>
+      <tr><td><strong>Endpoint</strong></td><td>The filter. Connects your POJO to the messaging system non-invasively.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Channel dimensions</h2>
+  <table>
+    <thead><tr><th>Axis</th><th>Options</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td>Delivery</td><td>point-to-point / publish-subscribe</td><td>one consumer per message vs. broadcast to all subscribers</td></tr>
+      <tr><td>Consumption</td><td>subscribable / pollable</td><td>message-driven (push) vs. buffered queue read by a poller (pull)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>The seven endpoint types (Overview list)</h2>
+  <table>
+    <thead><tr><th>Endpoint</th><th>Job</th></tr></thead>
+    <tbody>
+      <tr><td>Transformer</td><td>Convert payload/structure or modify headers.</td></tr>
+      <tr><td>Filter</td><td>Boolean test — pass the message on, or drop/throw.</td></tr>
+      <tr><td>Router</td><td>Decide which channel(s) receive the message next.</td></tr>
+      <tr><td>Splitter</td><td>One message in → many messages out.</td></tr>
+      <tr><td>Aggregator</td><td>Many messages in → one out (stateful: correlation + release + timeout).</td></tr>
+      <tr><td>Service Activator</td><td>Invoke a service method; optional reply channel / return address.</td></tr>
+      <tr><td>Channel Adapter</td><td>Inbound/outbound bridge between a channel and an external system/transport.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Wiring cheatsheet</h2>
+  <pre><code>// Register infrastructure (Boot's integration starter does this for you)
+@EnableIntegration
+
+// A POJO service activator — no Message/Channel types leak in
+@ServiceActivator(inputChannel = "in")
+public String handle(String payload) { ... }
+
+// Pull a header without exposing the Message type
+@ServiceActivator(inputChannel = "in")
+public String handle(@Payload String p, @Header("locale") String locale) { ... }</code></pre>
+
+  <h2>Endpoint bean naming (for debugging logs)</h2>
+  <table>
+    <thead><tr><th>Declared as</th><th>Consumer bean</th><th>Handler bean</th></tr></thead>
+    <tbody>
+      <tr><td><code>@ServiceActivator</code> on a <code>@Component</code> method</td>
+          <td><code>someComponent.someMethod.serviceActivator</code></td>
+          <td><code>…serviceActivator.handler</code></td></tr>
+      <tr><td>with <code>@EndpointId("someService")</code></td>
+          <td><code>someService</code></td>
+          <td><code>someService.handler</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Glossary</h2>
+  <table>
+    <thead><tr><th>Term</th><th>Definition</th></tr></thead>
+    <tbody>
+      <tr><td>EIP</td><td>Enterprise Integration Patterns — the Hohpe/Woolf catalogue Spring Integration implements.</td></tr>
+      <tr><td>Pipes-and-filters</td><td>Architecture where "filters" (endpoints) process data and "pipes" (channels) connect them.</td></tr>
+      <tr><td>Payload</td><td>The business object carried by a message.</td></tr>
+      <tr><td>Headers</td><td>Message metadata: id, timestamp, correlationId, return address, plus custom key/values.</td></tr>
+      <tr><td>Return address</td><td>Header naming the channel to send a reply to when no output channel is configured.</td></tr>
+      <tr><td>Poller</td><td>Scheduled task that reads messages from a pollable channel / source.</td></tr>
+      <tr><td>Service Activator</td><td>Generic endpoint connecting a service method to the messaging system.</td></tr>
+      <tr><td>Channel Adapter</td><td>Inbound/outbound endpoint bridging a channel to an external system.</td></tr>
+      <tr><td>ESB</td><td>Enterprise Service Bus — the centralized hub model Spring Integration deliberately avoids.</td></tr>
+      <tr><td><code>@EnableIntegration</code></td><td>Registers framework infrastructure beans (errorChannel, taskScheduler, annotation processors).</td></tr>
+      <tr><td><code>MessageChannel</code></td><td>Core interface for channels (<code>org.springframework.messaging</code>).</td></tr>
+      <tr><td><code>MessageHandler</code></td><td>Interface every processing/outbound EIP component implements.</td></tr>
+      <tr><td><code>AbstractEndpoint</code></td><td>Base for consumers: <code>EventDrivenConsumer</code> (subscribable) / <code>PollingConsumer</code> (pollable).</td></tr>
+      <tr><td><code>SubscribableChannel</code></td><td>Push-based channel: handlers subscribe; sender dispatches directly.</td></tr>
+      <tr><td><code>PollableChannel</code></td><td>Pull-based channel: consumer calls <code>receive()</code> to get the next message.</td></tr>
+      <tr><td><code>EventDrivenConsumer</code></td><td>Endpoint that subscribes a <code>MessageHandler</code> to a <code>SubscribableChannel</code>.</td></tr>
+      <tr><td><code>PollingConsumer</code></td><td>Endpoint that polls a <code>PollableChannel</code> via a scheduler-driven poller.</td></tr>
+      <tr><td>Push model</td><td>Sender initiates delivery to subscriber(s) — <code>SubscribableChannel</code>.</td></tr>
+      <tr><td>Pull model</td><td>Consumer requests the next message when ready — <code>PollableChannel</code>.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="reminder">
+    <strong>Source:</strong>
+    <a href="https://docs.spring.io/spring-integration/reference/overview.html" target="_blank">Spring Integration Reference — Overview</a>.
+    Built from <a href="../lessons/0001-overview-messages-channels-endpoints.html">Lesson 0001</a>.
+  </div>
+</body>
+</html>

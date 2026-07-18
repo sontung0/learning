@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0002 • Core Messaging — Chapter Roadmap</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0002</span>
+      <span>Phase 2 • Core Messaging</span>
+      <span>~5 min</span>
+    </div>
+    <h1>Core Messaging: Chapter Roadmap</h1>
+    <p><em>A short orientation before we go deep on channels — what this chapter covers, and what's deliberately deferred.</em></p>
+  </div>
+
+  <h2>Why this lesson is short</h2>
+
+  <p>The <a href="https://docs.spring.io/spring-integration/reference/core.html" target="_blank">Core
+  Messaging</a> reference page introduces no new API of its own — it is a one-paragraph map of the
+  chapter you're about to work through. Per our strict reference-order rule (one page = one lesson),
+  it still earns its own lesson, but the job here is orientation, not new mechanics. Lesson 0003
+  picks the real code back up with Message Channels.</p>
+
+  <div class="callout primary">
+    <strong>Mission tie-in:</strong> Knowing the shape of a reference chapter before diving in is
+    itself a skill for independent mastery — it lets you predict what's coming and slot new facts
+    into a mental model instead of learning them as a disconnected pile.
+  </div>
+
+  <h2>What "core messaging" bundles together</h2>
+
+  <p>Per the reference:
+  <a href="https://docs.spring.io/spring-integration/reference/core.html" target="_blank">[ref]</a></p>
+
+  <blockquote>This section covers all aspects of the core messaging API in Spring Integration. It
+  covers messages, message channels, and message endpoints. It also covers many of the enterprise
+  integration patterns, such as filter, router, transformer, service activator, splitter, and
+  aggregator. This section also contains material about system management, including the control
+  bus and message history support.</blockquote>
+
+  <p>That's a wide net. Our `RESOURCES.md` splits it into the sequence below, in strict order, so we
+  cover it as separate, digestible lessons rather than one sprawling page.</p>
+
+  <h2>The road ahead: Phase 2 (this chapter, channels first)</h2>
+
+  <table>
+    <thead>
+      <tr><th>#</th><th>Lesson topic</th><th>What it adds</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0002</td><td>Core Messaging <em>(you are here)</em></td><td>Chapter roadmap — no new API.</td></tr>
+      <tr><td>0003</td><td>Message Channels</td><td>What a channel <em>is</em>: the pipe abstraction, point-to-point vs pub-sub.</td></tr>
+      <tr><td>0004</td><td>The <code>MessageChannel</code> Interface</td><td><code>MessageChannel</code>, <code>PollableChannel</code>, <code>SubscribableChannel</code> contracts.</td></tr>
+      <tr><td>0005</td><td>Message Channel Implementations</td><td><code>DirectChannel</code>, <code>QueueChannel</code>, <code>PublishSubscribeChannel</code>, <code>ExecutorChannel</code>, <code>PriorityChannel</code>, <code>RendezvousChannel</code>, <code>FluxMessageChannel</code>.</td></tr>
+      <tr><td>0006</td><td>Channel Interceptors</td><td><code>ChannelInterceptor</code>, global interceptors, wire taps.</td></tr>
+      <tr><td>0007</td><td>MessagingTemplate</td><td>Programmatic send/receive against channels.</td></tr>
+      <tr><td>0008</td><td>Configuring Message Channels</td><td>Declaring channels in Java/XML, datatype channels, dispatcher config.</td></tr>
+      <tr><td>0009</td><td>Special Channels</td><td><code>errorChannel</code>, <code>nullChannel</code>, default channels.</td></tr>
+      <tr><td>0010</td><td>Poller</td><td>Polling consumers, <code>PollerMetadata</code> — you already touched this in Lesson 0001's sandbox.</td></tr>
+      <tr><td>0011</td><td>Channel Adapter</td><td>Inbound/outbound adapters as flow entry/exit points.</td></tr>
+      <tr><td>0012</td><td>Messaging Bridge</td><td>Bridging two channels; throttling pollable → subscribable.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Deliberately deferred, not skipped</h2>
+
+  <p>Two things the summary mentions are <strong>not</strong> in this chapter's lessons — they live
+  later in `RESOURCES.md`, in their proper strict-order slot:</p>
+
+  <ul>
+    <li><strong>The individual EIP endpoints</strong> — filter, router, transformer, service
+        activator, splitter, aggregator — get their own dedicated phases (Phase 4 Message Routing
+        onward). Core Messaging only name-drops them; we'll build each one for real when its turn
+        comes.</li>
+    <li><strong>System management</strong> — control bus, message history, metrics — is Phase 8,
+        after the messaging fundamentals and DSL are solid. Operating a flow well requires first
+        knowing what's flowing.</li>
+  </ul>
+
+  <div class="callout warning">
+    <strong>Why this matters for retention:</strong> resist the urge to peek ahead and learn these
+    out of order. Each concept is introduced once its prerequisites are in place — jumping ahead
+    trades storage strength for a shallow, disconnected first impression.
+  </div>
+
+  <h2>Code along (sandbox)</h2>
+
+  <p>No new sandbox package for this lesson — there's no new API to run. Instead, revisit Lesson
+  0001's flow as evidence of the model you just mapped: a <code>QueueChannel</code> (pollable) is
+  exactly the <strong>Message Channel</strong> component the roadmap above is about to dissect in
+  detail, and the <code>@ServiceActivator</code> POJO is one instance of the <strong>Message
+  Endpoint</strong> family whose other members (filter, router, transformer, splitter, aggregator)
+  you'll build starting in Phase 4.</p>
+
+  <pre><code>cd topics/spring-integration/sandbox
+./mvnw spring-boot:run -Dspring-boot.run.profiles=lesson0001</code></pre>
+
+  <p>New runnable code resumes in Lesson 0003, where <code>com.learning.si.lesson0003</code> will
+  contrast a <code>DirectChannel</code> against the <code>QueueChannel</code> you already ran.</p>
+
+  <h2>Primary source</h2>
+  <p><a href="https://docs.spring.io/spring-integration/reference/core.html" target="_blank">Core
+  Messaging</a> — the whole page is one paragraph plus the section summary reproduced in the table
+  above.</p>
+  <p>Quick reference: <a href="../reference/0002-core-messaging-roadmap.html">Core Messaging Roadmap (Lesson 0002)</a>.</p>
+
+  <h2>Assessment — retrieve everything</h2>
+
+  <div class="assessment">
+    <p>Answer each without scrolling up. Click an option to check yourself.</p>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">The Core Messaging reference page primarily functions as a ____.</p>
+      <ul class="quiz-options">
+        <li data-correct="true">chapter roadmap with no new API of its own</li>
+        <li>full API reference for MessageChannel</li>
+        <li>tutorial for building a router</li>
+        <li>migration guide from XML to Java DSL</li>
+      </ul>
+      <p class="quiz-explain">It's a one-paragraph summary plus a section list — the real mechanics arrive in the pages it links to.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which lesson topic comes immediately after Core Messaging in strict `RESOURCES.md` order?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">Message Channels</li>
+        <li>Control Bus</li>
+        <li>Message History</li>
+        <li>Splitters and Aggregators</li>
+      </ul>
+      <p class="quiz-explain">Phase 2 goes channels → interfaces → implementations → interceptors → template → configuration → special channels → poller → adapter → bridge.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Where do filter, router, transformer, service activator, splitter, and aggregator get their own dedicated lessons?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">Later phases (starting with Message Routing), not this chapter</li>
+        <li>All within Lesson 0002 itself</li>
+        <li>They are out of scope per MISSION.md</li>
+        <li>Only in the XML namespace appendix</li>
+      </ul>
+      <p class="quiz-explain">Core Messaging only name-drops them; each one is built for real once its own phase is reached, in strict order.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">System management topics like the control bus and message history are covered in ____.</p>
+      <ul class="quiz-options">
+        <li data-correct="true">Phase 8, after messaging fundamentals and the DSL</li>
+        <li>Phase 2, immediately after this lesson</li>
+        <li>They aren't covered at all in this track</li>
+        <li>Phase 1, as part of the Overview</li>
+      </ul>
+      <p class="quiz-explain">Operating a flow well requires first knowing what's flowing — fundamentals before operations.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Why does this lesson reuse Lesson 0001's sandbox instead of introducing new code?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">Core Messaging introduces no new API to run</li>
+        <li>The sandbox is broken and needs a fix</li>
+        <li>New code is only added every third lesson</li>
+        <li>Profiles can only be activated once per topic</li>
+      </ul>
+      <p class="quiz-explain">The page is a roadmap; the QueueChannel and @ServiceActivator you already ran are live examples of the exact components the roadmap names.</p>
+    </div>
+
+    <p><strong>Written recall (say it out loud):</strong> list the ten lessons that make up Phase 2 in
+    order, and explain why filter/router/transformer/splitter/aggregator are deferred rather than
+    taught here.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <a href="0001-overview-messages-channels-endpoints.html">← Previous: Overview</a>
+    <a href="0003-message-channels.html">Next lesson → Message Channels</a>
+  </div>
+
+  <div class="reminder">
+    <strong>Reminder:</strong> I'm your teacher for this track. If any of this is fuzzy, ask a
+    followup in chat before moving to Lesson 0003.
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>

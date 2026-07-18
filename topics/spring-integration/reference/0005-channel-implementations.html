@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reference • Channel Implementations</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Reference</span>
+      <span>Channel Implementations</span>
+    </div>
+    <h1>Message Channel Implementations</h1>
+    <p><em>Seven channels, one decision guide.</em></p>
+  </div>
+
+  <h2>Quick reference table</h2>
+  <table>
+    <thead>
+      <tr><th>Implementation</th><th>Interface</th><th>Delivery</th><th>Threading</th><th>Buffering</th><th>Use case</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>DirectChannel</code></td>
+        <td>Subscribable</td>
+        <td>Point-to-point</td>
+        <td>Caller's thread</td>
+        <td>None</td>
+        <td>Synchronous flow, single tx boundary, ~80% of cases</td>
+      </tr>
+      <tr>
+        <td><code>QueueChannel</code></td>
+        <td>Pollable</td>
+        <td>Point-to-point</td>
+        <td>Scheduler (poller)</td>
+        <td><code>BlockingQueue</code></td>
+        <td>Buffered work queue, rate-limited consumer</td>
+      </tr>
+      <tr>
+        <td><code>PublishSubscribeChannel</code></td>
+        <td>Subscribable</td>
+        <td>Broadcast</td>
+        <td>Caller's thread (or executor)</td>
+        <td>None</td>
+        <td>Event notifications, multiple independent listeners</td>
+      </tr>
+      <tr>
+        <td><code>ExecutorChannel</code></td>
+        <td>Subscribable</td>
+        <td>Point-to-point</td>
+        <td>Executor thread pool</td>
+        <td>None</td>
+        <td>Fire-and-forget, decouple producer from consumer thread</td>
+      </tr>
+      <tr>
+        <td><code>PriorityChannel</code></td>
+        <td>Pollable</td>
+        <td>Point-to-point</td>
+        <td>Scheduler (poller)</td>
+        <td><code>PriorityBlockingQueue</code></td>
+        <td>Ordered processing by priority header</td>
+      </tr>
+      <tr>
+        <td><code>RendezvousChannel</code></td>
+        <td>Pollable</td>
+        <td>Point-to-point</td>
+        <td>Both sides block</td>
+        <td>Zero-capacity (<code>SynchronousQueue</code>)</td>
+        <td>Guaranteed handoff, no buffering</td>
+      </tr>
+      <tr>
+        <td><code>FluxMessageChannel</code></td>
+        <td>Reactive (Publisher)</td>
+        <td>Broadcast (reactive)</td>
+        <td>Reactor scheduler</td>
+        <td>Back-pressure aware</td>
+        <td>Reactive pipelines with Project Reactor</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Dispatcher configuration (DirectChannel / ExecutorChannel)</h2>
+  <pre><code>DirectChannel ch = new DirectChannel();
+ch.setFailover(false);                          // default: true
+ch.setLoadBalancingStrategy(null);              // "none" — fixed order; default: round-robin</code></pre>
+
+  <h2>QueueChannel capacity</h2>
+  <pre><code>new QueueChannel();       // unbounded — dangerous in production
+new QueueChannel(25);     // bounded — always do this</code></pre>
+
+  <h2>PublishSubscribeChannel executor</h2>
+  <pre><code>new PublishSubscribeChannel();                          // synchronous broadcast
+new PublishSubscribeChannel(someExecutor());             // async broadcast</code></pre>
+
+  <h2>Priority header (string key)</h2>
+  <pre><code>MessageBuilder.withPayload("urgent")
+    .setHeader("priority", 10)
+    .build();</code></pre>
+
+  <div class="reminder">
+    <strong>Source:</strong>
+    <a href="https://docs.spring.io/spring-integration/reference/channel/implementations.html" target="_blank">Spring Integration Reference — Message Channel Implementations</a>.
+    Built from <a href="../lessons/0005-channel-implementations.html">Lesson 0005</a>.
+  </div>
+</body>
+</html>

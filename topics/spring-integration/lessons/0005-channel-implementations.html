@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0005 • Message Channel Implementations</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0005</span>
+      <span>Phase 2 • Core Messaging</span>
+      <span>~20 min</span>
+    </div>
+    <h1>Message Channel Implementations</h1>
+    <p><em>Seven channel types in the framework, their interface branch, dispatch behaviour, and when to use each.</em></p>
+  </div>
+
+  <h2>Why this lesson exists</h2>
+
+  <p>Lesson 0004 taught you the interface contracts. This lesson teaches you the <strong>concrete implementations</strong> — the seven channel classes Spring Integration ships — and the practical trade-offs that make you pick one over the other in a real flow <a href="https://docs.spring.io/spring-integration/reference/channel/implementations.html" target="_blank">[ref]</a>.</p>
+
+  <div class="callout primary">
+    <strong>Mission tie-in:</strong> Choosing the right channel type is the single most impactful design decision in a Spring Integration flow. Use the wrong one and you'll fight thread-pool exhaustion, transaction boundaries, or back-pressure for the rest of the project. Know them all and the choice becomes trivial.
+  </div>
+
+  <h2>Quick-reference map</h2>
+
+  <table>
+    <thead>
+      <tr><th>Implementation</th><th>Interface</th><th>Delivery</th><th>Threading</th><th>Buffering</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>DirectChannel</code></td><td>Subscribable</td><td>Point-to-point</td><td>Caller's thread</td><td>None</td></tr>
+      <tr><td><code>QueueChannel</code></td><td>Pollable</td><td>Point-to-point</td><td>Scheduler (poller)</td><td><code>BlockingQueue</code></td></tr>
+      <tr><td><code>PublishSubscribeChannel</code></td><td>Subscribable</td><td>Broadcast</td><td>Caller's thread (or executor)</td><td>None</td></tr>
+      <tr><td><code>ExecutorChannel</code></td><td>Subscribable</td><td>Point-to-point</td><td>Executor thread pool</td><td>None</td></tr>
+      <tr><td><code>PriorityChannel</code></td><td>Pollable</td><td>Point-to-point</td><td>Scheduler (poller)</td><td><code>PriorityBlockingQueue</code></td></tr>
+      <tr><td><code>RendezvousChannel</code></td><td>Pollable</td><td>Point-to-point</td><td>Both block until matched</td><td>Zero-capacity handoff</td></tr>
+      <tr><td><code>FluxMessageChannel</code></td><td>Reactive</td><td>Broadcast (reactive)</td><td>Reactor scheduler</td><td>Back-pressure aware</td></tr>
+    </tbody>
+  </table>
+
+  <h2>1. <code>DirectChannel</code> — the default</h2>
+
+  <p>The channel you reach for 80% of the time. It is the default when you declare a channel without a <code>&lt;queue&gt;</code> element <a href="https://docs.spring.io/spring-integration/reference/channel/implementations.html" target="_blank">[ref]</a>:</p>
+
+  <pre><code>// Simplest form — this is a DirectChannel:
+@Bean
+public MessageChannel orders() {
+    return new DirectChannel();
+}</code></pre>
+
+  <ul>
+    <li><strong>Point-to-point</strong>: each message goes to exactly one subscriber.</li>
+    <li><strong>Synchronous</strong>: the caller's thread invokes the <code>MessageHandler</code> directly. No thread handoff means a single transaction can span both sides.</li>
+    <li><strong>Load balancing</strong>: when multiple handlers subscribe to the same <code>DirectChannel</code>, the dispatcher uses round-robin by default. You can switch to <code>load-balancer="none"</code> for fixed-order failover.</li>
+    <li><strong>Failover</strong>: enabled by default. If handler A throws an exception, the dispatcher tries handler B. Set <code>setFailover(false)</code> to fail fast.</li>
+  </ul>
+
+  <p>Because there's no buffering, <code>send()</code> blocks the caller until the handler returns. For fast in-process flows this is exactly what you want — for slow handlers, it pins the sender's thread.</p>
+
+  <h3>Dispatcher configuration</h3>
+
+  <pre><code>DirectChannel channel = new DirectChannel();
+channel.setFailover(false);           // stop on first exception (default: true)
+channel.setLoadBalancingStrategy(null); // "none" — fixed order (default: round-robin)</code></pre>
+
+  <h2>2. <code>QueueChannel</code> — buffered, polled</h2>
+
+  <p>A <code>PollableChannel</code> backed by a <code>BlockingQueue</code>. Messages are buffered until a consumer pulls them via a poller <a href="https://docs.spring.io/spring-integration/reference/channel/implementations.html" target="_blank">[ref]</a>:</p>
+
+  <pre><code>@Bean
+public PollableChannel tasks() {
+    return new QueueChannel(25);  // bounded — essential in production
+}</code></pre>
+
+  <ul>
+    <li><strong>Capacity</strong>: unbounded by default (<code>new QueueChannel()</code>). <strong>Always set a capacity in production</strong> — an unbounded queue can exhaust memory under load.</li>
+    <li><strong>Send behaviour</strong>: if space is available, returns immediately. At capacity, the sender blocks until space frees or the <code>send()</code> timeout elapses.</li>
+    <li><strong>Receive behaviour</strong>: <code>receive(-1)</code> blocks until a message arrives; <code>receive(0)</code> returns <code>null</code> immediately if empty.</li>
+    <li><strong>Requires a poller</strong>: without a <code>PollerMetadata</code> bean, nobody calls <code>receive()</code> and messages sit forever.</li>
+  </ul>
+
+  <div class="callout warning">
+    <strong>Always bound your QueueChannels.</strong> An unbounded <code>QueueChannel</code> looks convenient during development but is a production incident waiting to happen — a fast producer can fill the heap before you notice.
+  </div>
+
+  <h2>3. <code>PublishSubscribeChannel</code> — broadcast</h2>
+
+  <p>Broadcasts every message to <strong>all</strong> subscribed handlers. Implements <code>SubscribableChannel</code> — no polling, no buffering <a href="https://docs.spring.io/spring-integration/reference/channel/implementations.html" target="_blank">[ref]</a>:</p>
+
+  <pre><code>@Bean
+public MessageChannel events() {
+    return new PublishSubscribeChannel();
+}
+
+// Async broadcasting via a TaskExecutor:
+@Bean
+public MessageChannel asyncEvents() {
+    return new PublishSubscribeChannel(someExecutor());
+}</code></pre>
+
+  <ul>
+    <li><strong>Min subscribers</strong>: by default <code>minSubscribers = 0</code>. If you set it higher, <code>send()</code> returns <code>false</code> when fewer subscribers are registered.</li>
+    <li><strong>Threading</strong>: without an executor, all handlers run on the caller's thread (sequentially). With an executor, each handler invocation is submitted independently and <code>send()</code> returns as soon as the minimum number of subscribers has been met.</li>
+    <li><strong>Error handling</strong>: with an executor, exceptions can be caught by the configured error channel. Without an executor, an exception in handler #2 prevents handler #3 from running.</li>
+  </ul>
+
+  <h2>4. <code>ExecutorChannel</code> — async point-to-point</h2>
+
+  <p>A point-to-point <code>SubscribableChannel</code> that hands off message dispatch to a <code>TaskExecutor</code>. The sender's thread is freed immediately <a href="https://docs.spring.io/spring-integration/reference/channel/implementations.html" target="_blank">[ref]</a>:</p>
+
+  <pre><code>@Bean
+public MessageChannel asyncChannel() {
+    return new ExecutorChannel(Executors.newFixedThreadPool(4));
+}</code></pre>
+
+  <ul>
+    <li><strong>Breaks the transaction scope</strong>: because the handler runs on a different thread, a transaction on the sender's side does <strong>not</strong> extend to the receiver.</li>
+    <li><strong>Supports load-balancing and failover</strong>, same as <code>DirectChannel</code>.</li>
+    <li>The sender can still block if the executor's queue is full and its rejection policy is <code>CallerRunsPolicy</code>.</li>
+  </ul>
+
+  <p><strong>When to use:</strong> fire-and-forget flows, or when you need to decouple the producer's thread from the consumer's processing time.</p>
+
+  <h2>5. <code>PriorityChannel</code> — ordered pollable</h2>
+
+  <p>A <code>PollableChannel</code> backed by a <code>PriorityBlockingQueue</code>. Messages are ordered by the <code>priority</code> header (or a custom <code>Comparator</code>) <a href="https://docs.spring.io/spring-integration/reference/channel/implementations.html" target="_blank">[ref]</a>:</p>
+
+  <pre><code>@Bean
+public PollableChannel priorityChannel() {
+    return new PriorityChannel(10);
+}</code></pre>
+
+  <ul>
+    <li>Messages with a higher <code>priority</code> header value are consumed first.</li>
+    <li>Like <code>QueueChannel</code>, requires a poller and can be bounded.</li>
+    <li>Can be backed by a persistent <code>MessageGroupQueue</code> for durable priority queues.</li>
+  </ul>
+
+  <h2>6. <code>RendezvousChannel</code> — synchronous handoff</h2>
+
+  <p>A <code>PollableChannel</code> that uses a zero-capacity <code>SynchronousQueue</code>. The sender <strong>blocks</strong> until a receiver is ready, and the receiver blocks until a sender arrives <a href="https://docs.spring.io/spring-integration/reference/channel/implementations.html" target="_blank">[ref]</a>:</p>
+
+  <pre><code>@Bean
+public PollableChannel rendezvous() {
+    return new RendezvousChannel();
+}</code></pre>
+
+  <ul>
+    <li>Ensures the sender knows the message has been accepted — no buffering, no dropping.</li>
+    <li>Useful when you need <strong>guaranteed handoff</strong> and the consumer cannot miss a message, but you don't want buffering.</li>
+  </ul>
+
+  <h2>7. <code>FluxMessageChannel</code> — reactive</h2>
+
+  <p>A channel that bridges Spring Integration with Project Reactor. It implements <code>ReactiveStreamsSubscribableChannel</code> and acts as a hot <code>Publisher</code> <a href="https://docs.spring.io/spring-integration/reference/channel/implementations.html" target="_blank">[ref]</a>:</p>
+
+  <pre><code>@Bean
+public FluxMessageChannel fluxChannel() {
+    return new FluxMessageChannel();
+}</code></pre>
+
+  <ul>
+    <li>Messages are sunk into a <code>Flux</code> — reactive subscribers consume them with back-pressure.</li>
+    <li>Neither <code>SubscribableChannel</code> nor <code>PollableChannel</code> — it's a third branch in the channel hierarchy.</li>
+    <li>Useful for reactive flows where you want to compose integration steps with Reactor operators.</li>
+  </ul>
+
+  <h2>Quick decision guide</h2>
+
+  <table>
+    <thead>
+      <tr><th>You need…</th><th>Pick</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Simple synchronous flow, single subscriber</td><td><code>DirectChannel</code></td></tr>
+      <tr><td>Buffered work queue, rate-limited consumer</td><td><code>QueueChannel</code></td></tr>
+      <tr><td>Broadcast event to all listeners</td><td><code>PublishSubscribeChannel</code></td></tr>
+      <tr><td>Fire-and-forget, decouple producer thread</td><td><code>ExecutorChannel</code></td></tr>
+      <tr><td>Ordered processing by urgency</td><td><code>PriorityChannel</code></td></tr>
+      <tr><td>Zero-buffer guaranteed handoff</td><td><code>RendezvousChannel</code></td></tr>
+      <tr><td>Reactive/back-pressure-aware pipeline</td><td><code>FluxMessageChannel</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Code along (sandbox)</h2>
+
+  <p>The sandbox for this lesson demonstrates five of the seven implementations in a single runnable profile <code>lesson0005</code>:</p>
+
+  <ul>
+    <li><strong>DirectChannel</strong> — with two subscribers, showing round-robin load balancing (A, B, A, B).</li>
+    <li><strong>QueueChannel</strong> — bounded at 5, with a default poller pulling messages.</li>
+    <li><strong>PublishSubscribeChannel</strong> — both subscribers see every message.</li>
+    <li><strong>ExecutorChannel</strong> — handler runs on a pool thread, not the main thread.</li>
+    <li><strong>PriorityChannel</strong> — messages with priority header 1, 5, 10 are consumed in order.</li>
+  </ul>
+
+  <pre><code>cd topics/spring-integration/sandbox
+./mvnw spring-boot:run -Dspring-boot.run.profiles=lesson0005</code></pre>
+
+  <h2>Primary source</h2>
+  <p><a href="https://docs.spring.io/spring-integration/reference/channel/implementations.html" target="_blank">Message Channel Implementations</a> — the full reference page.</p>
+  <p>Quick reference: <a href="../reference/0005-channel-implementations.html">Channel Implementations Cheatsheet</a>.</p>
+  <p>Interface hierarchy: <a href="../reference/0004-message-channel-interface.html">MessageChannel Interface Reference</a>.</p>
+  <p>Glossary: <a href="../reference/0001-core-concepts.html">Core Concepts &amp; Glossary</a>.</p>
+
+  <h2>Assessment — retrieve everything</h2>
+
+  <div class="assessment">
+    <p>Answer each without scrolling up. Click an option to check yourself.</p>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which channel type is the default when you declare a channel without a queue element?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">DirectChannel</li>
+        <li>QueueChannel</li>
+        <li>PublishSubscribeChannel</li>
+        <li>ExecutorChannel</li>
+      </ul>
+      <p class="quiz-explain">DirectChannel is the default — SubscribableChannel, point-to-point, synchronous dispatch on the caller's thread.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which channel type would you use for a broadcast event that all subscribers must see?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">PublishSubscribeChannel</li>
+        <li>DirectChannel</li>
+        <li>QueueChannel</li>
+        <li>RendezvousChannel</li>
+      </ul>
+      <p class="quiz-explain">PublishSubscribeChannel delivers every message to all subscribers — that's the broadcast pattern.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">A QueueChannel without an explicit capacity is ____.</p>
+      <ul class="quiz-options">
+        <li data-correct="true">unbounded — can exhaust memory under load</li>
+        <li>bounded at 10 by default</li>
+        <li>bounded at 100 by default</li>
+        <li>not allowed — capacity is required</li>
+      </ul>
+      <p class="quiz-explain">new QueueChannel() uses an unbounded LinkedBlockingQueue. Always set a capacity in production.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">When multiple handlers subscribe to the same DirectChannel, what is the default load-balancing strategy?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">Round-robin</li>
+        <li>Random</li>
+        <li>First-in-first-served</li>
+        <li>Broadcast to all</li>
+      </ul>
+      <p class="quiz-explain">DirectChannel uses a UnicastingDispatcher with round-robin load balancing by default.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which channel type breaks the transaction scope because the handler runs on a different thread?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">ExecutorChannel</li>
+        <li>DirectChannel</li>
+        <li>QueueChannel</li>
+        <li>PublishSubscribeChannel (without executor)</li>
+      </ul>
+      <p class="quiz-explain">ExecutorChannel hands off to a TaskExecutor's thread; the sender's transaction does not extend to the receiver.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">A RendezvousChannel uses a ____ queue for zero-capacity handoff.</p>
+      <ul class="quiz-options">
+        <li data-correct="true">SynchronousQueue</li>
+        <li>LinkedBlockingQueue</li>
+        <li>PriorityBlockingQueue</li>
+        <li>ArrayBlockingQueue</li>
+      </ul>
+      <p class="quiz-explain">RendezvousChannel wraps a SynchronousQueue — both sender and receiver block until the other is ready.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which channel is backed by a PriorityBlockingQueue and orders messages by the priority header?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">PriorityChannel</li>
+        <li>QueueChannel</li>
+        <li>RendezvousChannel</li>
+        <li>DirectChannel</li>
+      </ul>
+      <p class="quiz-explain">PriorityChannel extends QueueChannel with a PriorityBlockingQueue that reads the priority header.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which channel type can be used to create a fully reactive integration pipeline with back-pressure?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">FluxMessageChannel</li>
+        <li>PublishSubscribeChannel</li>
+        <li>ExecutorChannel</li>
+        <li>DirectChannel</li>
+      </ul>
+      <p class="quiz-explain">FluxMessageChannel implements ReactiveStreamsSubscribableChannel and sinks messages into a Flux for reactive consumption.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the effect of setting failover to false on a DirectChannel?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">Dispatching stops at the first handler that throws an exception</li>
+        <li>Messages are broadcast to all handlers</li>
+        <li>The channel becomes a QueueChannel</li>
+        <li>Exceptions are silently swallowed</li>
+      </ul>
+      <p class="quiz-explain">With failover=false, the dispatcher does not try subsequent handlers after an exception.</p>
+    </div>
+
+    <p><strong>Written recall (say it out loud):</strong> Name all seven channel implementations, their interface branch (Subscribable/Pollable/Reactive), and a one-sentence use case for each.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <a href="0004-message-channel-interface.html">← Previous: MessageChannel Interface</a>
+    <a href="0006-channel-interceptors.html">Next lesson → Channel Interceptors</a>
+  </div>
+
+  <div class="reminder">
+    <strong>Reminder:</strong> I'm your teacher for this track. If any of this is fuzzy, ask a followup in chat before moving to Lesson 0006.
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>

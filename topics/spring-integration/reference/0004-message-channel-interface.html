@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reference • MessageChannel Interface</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Reference</span>
+      <span>MessageChannel Interface</span>
+    </div>
+    <h1>MessageChannel Interface &amp; Hierarchy</h1>
+    <p><em>Quick-reference for the three core channel contracts.</em></p>
+  </div>
+
+  <h2>Interface hierarchy</h2>
+
+  <pre><code>MessageChannel                   // send(Message), send(Message, long)
+  ├── SubscribableChannel        // subscribe(), unsubscribe() — push
+  │     └── DirectChannel, PublishSubscribeChannel,
+  │         ExecutorChannel, FluxMessageChannel
+  └── PollableChannel            // receive(), receive(long) — pull
+        └── QueueChannel, PriorityChannel, RendezvousChannel</code></pre>
+
+  <h2>Interface definitions</h2>
+
+  <pre><code>public interface MessageChannel {
+    boolean send(Message message);
+    boolean send(Message message, long timeout);
+}
+
+public interface SubscribableChannel extends MessageChannel {
+    boolean subscribe(MessageHandler handler);
+    boolean unsubscribe(MessageHandler handler);
+}
+
+public interface PollableChannel extends MessageChannel {
+    Message&lt;?&gt; receive();
+    Message&lt;?&gt; receive(long timeout);
+}</code></pre>
+
+  <h2>send() semantics</h2>
+  <table>
+    <thead><tr><th>Signature</th><th>Blocking behaviour</th><th>Returns</th></tr></thead>
+    <tbody>
+      <tr><td><code>send(msg)</code></td><td>Blocks indefinitely (timeout = -1)</td><td><code>true</code> on delivery; <code>false</code> on failure</td></tr>
+      <tr><td><code>send(msg, timeout)</code></td><td>Blocks up to <code>timeout</code> ms then gives up</td><td><code>true</code> on delivery; <code>false</code> if timeout elapsed</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Push vs Pull trade-offs</h2>
+  <table>
+    <thead><tr><th>Dimension</th><th>SubscribableChannel (push)</th><th>PollableChannel (pull)</th></tr></thead>
+    <tbody>
+      <tr><td>Threading</td><td>Sender's thread (or configured executor)</td><td>Scheduler (poller) thread</td></tr>
+      <tr><td>Buffering</td><td>None — immediate dispatch or reject</td><td>Queue-backed — messages accumulate</td></tr>
+      <tr><td>Back-pressure</td><td>Sender blocks (same thread)</td><td>Queue grows (bounded or unbounded)</td></tr>
+      <tr><td>Transaction scope</td><td>Single thread — tx crosses channel</td><td>Poller tx ends; consumer runs separately</td></tr>
+      <tr><td>Consumer control</td><td>Framework decides when to invoke</td><td>Consumer pulls at its own rate</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Glossary additions</h2>
+  <table>
+    <thead><tr><th>Term</th><th>Definition</th></tr></thead>
+    <tbody>
+      <tr><td>Push model</td><td>Sender initiates delivery to subscriber(s) — SubscribableChannel.</td></tr>
+      <tr><td>Pull model</td><td>Consumer requests the next message when ready — PollableChannel.</td></tr>
+      <tr><td><code>EventDrivenConsumer</code></td><td>Endpoint that subscribes a MessageHandler to a SubscribableChannel.</td></tr>
+      <tr><td><code>PollingConsumer</code></td><td>Endpoint that polls a <code>PollableChannel</code> via a scheduler-driven poller.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="reminder">
+    <strong>Source:</strong>
+    <a href="https://docs.spring.io/spring-integration/reference/channel/interfaces.html" target="_blank">Spring Integration Reference — The MessageChannel Interface</a>.
+    Built from <a href="../lessons/0004-message-channel-interface.html">Lesson 0004</a>.
+  </div>
+</body>
+</html>

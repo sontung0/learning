@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0004 • The MessageChannel Interface</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0004</span>
+      <span>Phase 2 • Core Messaging</span>
+      <span>~15 min</span>
+    </div>
+    <h1>The MessageChannel Interface</h1>
+    <p><em>The three core contracts that every channel implements — <code>send</code>, <code>subscribe</code>, and <code>receive</code> — and why the distinction matters at runtime.</em></p>
+  </div>
+
+  <h2>Why this lesson exists</h2>
+
+  <p>Lesson 0003 showed you what channels <em>do</em> (point-to-point vs publish-subscribe as a delivery mode). This lesson shows you the <strong>Java interface hierarchy</strong> behind those behaviours. Every channel you will ever declare — <code>DirectChannel</code>, <code>QueueChannel</code>, <code>PublishSubscribeChannel</code>, <code>ExecutorChannel</code>, <code>PriorityChannel</code>, <code>FluxMessageChannel</code> — implements one of two sub-interfaces of <code>MessageChannel</code>. Understanding this split tells you instantly whether a channel is push-based or pull-based without reading a one-liner.</p>
+
+  <div class="callout primary">
+    <strong>Mission tie-in:</strong> When you design a production integration, choosing the wrong consumption model (push vs pull) is a common source of thread-pool exhaustion, dropped messages, or mysterious back-pressure bugs. Knowing the interface hierarchy means you diagnose the problem from the type, not from trial-and-error.
+  </div>
+
+  <h2>The interface hierarchy</h2>
+
+  <p>Three interfaces, one root, two branches — <a href="https://docs.spring.io/spring-integration/reference/channel/interfaces.html" target="_blank">[ref]</a>:</p>
+
+  <pre><code>MessageChannel                   // send(Message), send(Message, long)
+  ├── SubscribableChannel        // subscribe(MessageHandler), unsubscribe(MessageHandler)
+  │     └── DirectChannel, PublishSubscribeChannel, ExecutorChannel, FluxMessageChannel
+  └── PollableChannel            // receive(), receive(long)
+        └── QueueChannel, PriorityChannel, RendezvousChannel</code></pre>
+
+  <h3>1. <code>MessageChannel</code> — the root</h3>
+
+  <p>Every channel in Spring Integration implements <code>MessageChannel</code>. It defines exactly two methods <a href="https://docs.spring.io/spring-integration/reference/channel/interfaces.html" target="_blank">[ref]</a>:</p>
+
+  <pre><code>public interface MessageChannel {
+
+    boolean send(Message message);
+
+    boolean send(Message message, long timeout);
+}</code></pre>
+
+  <ul>
+    <li><code>send(Message)</code> delegates to <code>send(message, -1)</code> — block indefinitely.</li>
+    <li><code>send(Message, long)</code> blocks up to <code>timeout</code> milliseconds, then returns <code>false</code> (not an exception) if delivery failed.</li>
+    <li>The boolean return value is the <strong>only</strong> signal of success or failure from the send side — no exceptions are thrown under normal rejection.</li>
+  </ul>
+
+  <p>The second argument's meaning varies by implementation:</p>
+  <table>
+    <thead>
+      <tr><th>Channel type</th><th><code>timeout</code> controls…</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>DirectChannel</code></td><td>How long to wait for a subscriber to accept the message (rarely a factor; dispatch is synchronous on the caller's thread).</td></tr>
+      <tr><td><code>QueueChannel</code></td><td>How long to wait for space in the bounded queue (if capacity is set).</td></tr>
+    </tbody>
+  </table>
+
+  <h3>2. <code>SubscribableChannel</code> — push-based</h3>
+
+  <p>Extends <code>MessageChannel</code> for channels that maintain a registry of <code>MessageHandler</code> subscribers and dispatch to them directly <a href="https://docs.spring.io/spring-integration/reference/channel/interfaces.html" target="_blank">[ref]</a>:</p>
+
+  <pre><code>public interface SubscribableChannel extends MessageChannel {
+
+    boolean subscribe(MessageHandler handler);
+
+    boolean unsubscribe(MessageHandler handler);
+}</code></pre>
+
+  <ul>
+    <li>A handler is registered via <code>subscribe()</code> and removed via <code>unsubscribe()</code>.</li>
+    <li>When <code>send()</code> is called, the channel iterates its subscribers and invokes <code>handleMessage()</code> on each (or one, depending on the implementation's dispatch behaviour).</li>
+    <li>This is a <strong>push</strong> model: the sender's thread does the work, or hands off to an executor (e.g., <code>ExecutorChannel</code>).</li>
+    <li>Implementations: <code>DirectChannel</code> (point-to-point, single subscriber), <code>PublishSubscribeChannel</code> (broadcast), <code>ExecutorChannel</code> (async via <code>TaskExecutor</code>), <code>FluxMessageChannel</code> (reactive).</li>
+  </ul>
+
+  <p>The framework's <code>EventDrivenConsumer</code> endpoint calls <code>subscribe()</code> under the hood when you declare a <code>@ServiceActivator(inputChannel = "…")</code> on a <code>SubscribableChannel</code>. You do not normally call <code>subscribe()</code> yourself — but knowing it exists tells you how the wiring actually works.</p>
+
+  <h3>3. <code>PollableChannel</code> — pull-based</h3>
+
+  <p>Extends <code>MessageChannel</code> for channels that buffer messages and let a consumer pull them on demand <a href="https://docs.spring.io/spring-integration/reference/channel/interfaces.html" target="_blank">[ref]</a>:</p>
+
+  <pre><code>public interface PollableChannel extends MessageChannel {
+
+    Message&lt;?&gt; receive();
+
+    Message&lt;?&gt; receive(long timeout);
+}</code></pre>
+
+  <ul>
+    <li><code>receive()</code> delegates to <code>receive(-1)</code> — block until a message arrives.</li>
+    <li><code>receive(long)</code> blocks up to <code>timeout</code> milliseconds, then returns <code>null</code> if no message arrived.</li>
+    <li>This is a <strong>pull</strong> model: the consumer controls when to ask for the next message.</li>
+    <li>Implementations: <code>QueueChannel</code> (bounded / unbounded <code>BlockingQueue</code>), <code>PriorityChannel</code> (ordered by priority header), <code>RendezvousChannel</code> (direct hand-off, blocks both sides until the exchange completes).</li>
+  </ul>
+
+  <p>The framework's <code>PollingConsumer</code> endpoint does the pulling — driven by a <code>PollerMetadata</code> (the <code>@Scheduled</code>-like poller you configured in Lesson 0001).</p>
+
+  <h2>Why two branches?</h2>
+
+  <p>The push/pull split maps directly to two integration realities:</p>
+
+  <table>
+    <thead>
+      <tr><th></th><th><strong>SubscribableChannel</strong> (push)</th><th><strong>PollableChannel</strong> (pull)</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Threading</strong></td><td>Sender's thread invokes the handler (or an executor you supply).</td><td>A scheduler thread calls <code>receive()</code> and hands off to the handler.</td></tr>
+      <tr><td><strong>Buffering</strong></td><td>No buffer — message must be accepted immediately or rejected.</td><td>Messages sit in a queue until the consumer pulls them.</td></tr>
+      <tr><td><strong>Back-pressure</strong></td><td>Sender blocks if the subscriber is slow (same thread).</td><td>Producer outruns consumer → queue grows (bounded or unbounded).</td></tr>
+      <tr><td><strong>Transaction scope</strong></td><td>Single thread on both sides — declarative transactions "just work" across the channel.</td><td>Transaction ends at the poller; the handler runs in a separate transaction.</td></tr>
+      <tr><td><strong>Typical use</strong></td><td>In-process flows where you want synchronous, single-threaded processing.</td><td>Work queues, buffered entry points, rate-limited consumers.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warning">
+    <strong>Watch out for the <code>QueueChannel</code> + poller default:</strong> a <code>QueueChannel</code> <em>is</em> a <code>PollableChannel</code>, but declaring one without a poller means nobody ever calls <code>receive()</code> — messages sit in the queue forever. Lesson 0001's <code>PollerMetadata.DEFAULT_POLLER</code> bean is what made that flow work.
+  </div>
+
+  <h2>What this means for your sandbox code</h2>
+
+  <p>In Lesson 0001 you declared a <code>QueueChannel</code> (a <code>PollableChannel</code>) with a default poller and a <code>@ServiceActivator</code>. The <code>@ServiceActivator</code> normally expects a <code>SubscribableChannel</code> (push), but the framework detects a <code>PollableChannel</code> and wraps the endpoint in a <code>PollingConsumer</code> — bridging the push annotation with a pull channel. That bridge only works because the default poller bean exists.</p>
+
+  <p>In this lesson's sandbox, you'll call <code>subscribe()</code> and <code>receive()</code> directly — no annotations, no poller — so you can feel the difference between push and pull in your fingers.</p>
+
+  <h2>Code along (sandbox)</h2>
+
+  <p>Open <code>com.learning.si.lesson0004.Lesson0004Config</code> — it demonstrates all three interfaces explicitly:</p>
+
+  <ul>
+    <li><strong>SubscribableChannel (push):</strong> a <code>DirectChannel</code> referenced as <code>SubscribableChannel</code>, with two <code>MessageHandler</code> lambdas subscribed via <code>.subscribe()</code>. Each message goes to exactly one handler (point-to-point).</li>
+    <li><strong>PollableChannel (pull):</strong> a <code>QueueChannel</code> referenced as <code>PollableChannel</code>. Three messages are sent, then pulled one by one with <code>.receive(0)</code> and <code>.receive(1000)</code>. The fourth pull returns <code>null</code> — the queue is empty.</li>
+    <li><strong>send() return value:</strong> demonstrates that <code>send()</code> returns a boolean — the framework's only send-side signal.</li>
+  </ul>
+
+  <pre><code>cd topics/spring-integration/sandbox
+./mvnw spring-boot:run -Dspring-boot.run.profiles=lesson0004</code></pre>
+
+  <h2>Primary source</h2>
+  <p><a href="https://docs.spring.io/spring-integration/reference/channel/interfaces.html" target="_blank">The MessageChannel Interface</a> — the full reference page.</p>
+  <p>Quick reference: <a href="../reference/0004-message-channel-interface.html">MessageChannel Interface Cheatsheet (Lesson 0004)</a>.</p>
+  <p>Glossary: <a href="../reference/0001-core-concepts.html">Core Concepts &amp; Glossary</a>.</p>
+
+  <h2>Assessment — retrieve everything</h2>
+
+  <div class="assessment">
+    <p>Answer each without scrolling up. Click an option to check yourself.</p>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the one method both SubscribableChannel and PollableChannel inherit?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">send(Message, long)</li>
+        <li>receive()</li>
+        <li>subscribe(MessageHandler)</li>
+        <li>getMessageCount()</li>
+      </ul>
+      <p class="quiz-explain">Both extend MessageChannel, which defines send(Message) and send(Message, long).</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">A DirectChannel implements which interface?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">SubscribableChannel</li>
+        <li>PollableChannel</li>
+        <li>Both SubscribableChannel and PollableChannel</li>
+        <li>Neither — it implements MessageChannel directly</li>
+      </ul>
+      <p class="quiz-explain">DirectChannel implements SubscribableChannel — handlers are subscribed and invoked on the sender's thread.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">A QueueChannel implements which interface?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">PollableChannel</li>
+        <li>SubscribableChannel</li>
+        <li>BlockingQueueChannel</li>
+        <li>MessageChannel directly</li>
+      </ul>
+      <p class="quiz-explain">QueueChannel implements PollableChannel — messages are buffered in a BlockingQueue and pulled via receive().</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What does receive(0) return when a QueueChannel is empty?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">null immediately</li>
+        <li>throws an EmptyQueueException</li>
+        <li>blocks forever</li>
+        <li>returns an empty Message with null payload</li>
+      </ul>
+      <p class="quiz-explain">receive(0) returns null immediately — zero timeout means "do not wait".</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What happens if you declare a @ServiceActivator on a QueueChannel without a poller?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">The handler never fires — no one calls receive()</li>
+        <li>It works fine — QueueChannel is also subscribable</li>
+        <li>Spring Boot throws a configuration error at startup</li>
+        <li>The poller defaults to a fixedDelay of 1 millisecond</li>
+      </ul>
+      <p class="quiz-explain">QueueChannel is PollableChannel-only. Without a PollerMetadata, no PollingConsumer is created, so receive() is never called.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which channel type allows a single thread to operate on both sides of the channel, making declarative transactions work seamlessly?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">DirectChannel (SubscribableChannel)</li>
+        <li>QueueChannel (PollableChannel)</li>
+        <li>PriorityChannel</li>
+        <li>RendezvousChannel</li>
+      </ul>
+      <p class="quiz-explain">DirectChannel invokes the handler on the sender's thread — same thread, same transaction.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What does the boolean return value of send() indicate?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">Whether delivery succeeded within the timeout</li>
+        <li>Whether the message was valid</li>
+        <li>Whether the channel has any subscribers</li>
+        <li>Whether the message was persisted</li>
+      </ul>
+      <p class="quiz-explain">send() returns false if delivery failed within the timeout — it does not throw under normal rejection.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">The framework's EventDrivenConsumer calls ____ on a SubscribableChannel to register its handler.</p>
+      <ul class="quiz-options">
+        <li data-correct="true">subscribe(MessageHandler)</li>
+        <li>send(Message)</li>
+        <li>receive()</li>
+        <li>register(MessageHandler)</li>
+      </ul>
+      <p class="quiz-explain">EventDrivenConsumer calls subscribe() with the endpoint's MessageHandler; the PollingConsumer equivalent uses a poller + receive().</p>
+    </div>
+
+    <p><strong>Written recall (say it out loud):</strong> Name the three channel interfaces, which implementations belong to each branch, and explain the push/pull trade-off in terms of threading, buffering, and transaction scope.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <a href="0003-message-channels.html">← Previous: Message Channels</a>
+    <a href="0005-channel-implementations.html">Next lesson → Channel Implementations</a>
+  </div>
+
+  <div class="reminder">
+    <strong>Reminder:</strong> I'm your teacher for this track. If any of this is fuzzy, ask a followup in chat before moving to Lesson 0005.
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>
