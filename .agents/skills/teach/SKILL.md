@@ -9,7 +9,7 @@ The user has asked you to teach them something. This is a stateful request - the
 
 ## Teaching Workspace
 
-You MUST set up a new learning workspace for the topic in `docs/learning/[topic]`. All files related to the topic must be isolated within this directory. Do not place learning files in the root directory.
+You MUST set up a new learning workspace for the topic in `topics/[topic]`. All files related to the topic must be isolated within this directory. Do not place learning files in the root directory.
 
 The state of their learning is captured in this topic-specific directory in several files:
 

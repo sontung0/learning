@@ -1,0 +1,20 @@
+# Spring Integration learning sandbox.
+#
+# No profile is active by default, so a bare `mvn spring-boot:run` starts an
+# empty context. Activate exactly one lesson profile to load that lesson's flow:
+#
+#   ./mvnw spring-boot:run -Dspring-boot.run.profiles=lesson0001
+#
+# Each lesson's @Configuration is annotated @Profile("lessonNNNN"), so lessons
+# never collide with one another.
+
+spring:
+  application:
+    name: spring-integration-sandbox
+  main:
+    banner-mode: "off"
+
+logging:
+  level:
+    org.springframework.integration: INFO
+    com.learning.si: DEBUG
