@@ -37,7 +37,7 @@
   <table>
     <thead><tr><th>Method</th><th>Return value to veto</th></tr></thead>
     <tbody>
-      <tr><td><code>preSend</code></td><td>Return <code>null</code> → cancels the send; <code>postSend</code> fires with <code>sent=false</code></td></tr>
+      <tr><td><code>preSend</code></td><td>Return <code>null</code> → cancels the send; <code>send()</code> returns <code>false</code>. Neither <code>postSend</code> nor <code>afterSendCompletion</code> fires.</td></tr>
       <tr><td><code>preReceive</code></td><td>Return <code>false</code> → cancels the receive</td></tr>
     </tbody>
   </table>
@@ -90,16 +90,19 @@ public PollableChannel myChannel() {
     <li>Global interceptors (<code>@GlobalChannelInterceptor</code>) — sorted by <code>order</code> ascending</li>
     <li>Channel-specific interceptors (<code>addInterceptor()</code>)</li>
     <li>Message dispatch to subscriber(s)</li>
-    <li><code>postSend</code> fires with the result</li>
-    <li><code>afterSendCompletion</code> fires (always)</li>
+    <li><code>postSend</code> fires with the result (skipped if message was vetoed)</li>
+    <li><code>afterSendCompletion</code> fires for cleanup (skipped if message was vetoed)</li>
   </ol>
 
   <h2>Send lifecycle diagram</h2>
   <pre><code>send() called
-  └→ preSend()      ← return null to veto
-      └→ dispatch to subscriber(s)
-          └→ postSend(sent=true|false)
-              └→ afterSendCompletion()  ← always fires</code></pre>
+  └→ preSend()
+      ├─ return null → veto → send() returns false immediately (<b>no more hooks</b>)
+      └─ return Message →
+           └→ dispatch to subscriber(s)
+               ├─ success → postSend(sent=true)
+               │             └→ afterSendCompletion()
+               └─ exception → afterSendCompletion(ex)  ← then rethrow</code></pre>
 
   <h2>Custom interceptor vs WireTap</h2>
   <table>

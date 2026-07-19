@@ -56,8 +56,8 @@
     </thead>
     <tbody>
       <tr><td><code>preSend</code></td><td>After a producer calls <code>send()</code>, before the message is dispatched to subscribers</td><td>Modify the message, return <code>null</code> to veto delivery</td></tr>
-      <tr><td><code>postSend</code></td><td>Immediately after the message has been dispatched</td><td>Observe success (<code>sent=true</code>) or rejection (<code>sent=false</code> but no exception)</td></tr>
-      <tr><td><code>afterSendCompletion</code></td><td>After the entire send operation completes (success or exception)</td><td>Cleanup — always fires, even when <code>preSend</code> returned <code>null</code></td></tr>
+      <tr><td><code>postSend</code></td><td>Immediately after the message has been dispatched</td><td>Observe success (<code>sent=true</code>) or rejection (<code>sent=false</code> but no exception). <strong>Not called when <code>preSend</code> returns <code>null</code></strong>.</td></tr>
+      <tr><td><code>afterSendCompletion</code></td><td>After the entire send operation completes (success or exception)</td><td>Cleanup — fires after the message is dispatched (or when an exception occurs). <strong>Not called when <code>preSend</code> returns <code>null</code></strong>.</td></tr>
     </tbody>
   </table>
 
@@ -184,7 +184,7 @@ public PollableChannel myChannel() {
     }
 });</code></pre>
 
-  <p>When a message is vetoed, <code>send()</code> returns <code>false</code> and <code>postSend</code> fires with <code>sent=false</code>. <code>afterSendCompletion</code> still fires — always, regardless of veto or exception.</p>
+  <p>When a message is vetoed, <code>send()</code> returns <code>false</code>. Neither <code>postSend</code> nor <code>afterSendCompletion</code> fires — the send is aborted before dispatch.</p>
 
   <h2>Interceptors vs subscribers: the order</h2>
 
@@ -194,8 +194,8 @@ public PollableChannel myChannel() {
     <li>Global interceptors (<code>@GlobalChannelInterceptor</code>) run in <code>order</code> ascending.</li>
     <li>Channel-specific interceptors (<code>channel.addInterceptor()</code>) run next.</li>
     <li>The message is dispatched to subscriber(s).</li>
-    <li><code>postSend</code> fires with the result.</li>
-    <li><code>afterSendCompletion</code> fires (cleanup).</li>
+    <li><code>postSend</code> fires with the result (only if the message was not vetoed).</li>
+    <li><code>afterSendCompletion</code> fires for cleanup (only if the message was not vetoed).</li>
   </ol>
 
   <p>On <code>preReceive</code>, the same layered order applies: global first, then channel-specific.</p>
@@ -225,12 +225,9 @@ public PollableChannel myChannel() {
     <p>Answer each without scrolling up. Click an option to check yourself.</p>
 
     <div class="quiz" data-quiz>
-<p class="quiz-q">What must preSend return to veto a message?</p>
-
       <p class="quiz-q">What must preSend return to veto a message?</p>
       <ul class="quiz-options">
-<li>the original Message unchanged</li>
-
+        <li>the original Message unchanged</li>
         <li data-correct="true">null</li>
 
         <li>false</li>
@@ -242,123 +239,81 @@ public PollableChannel myChannel() {
       </div>
 
     <div class="quiz" data-quiz>
-<p class="quiz-q">Which method is guaranteed to fire even when preSend returns null?</p>
-
-      <p class="quiz-q">Which method is guaranteed to fire even when preSend returns null?</p>
+      <p class="quiz-q">What happens when preSend returns null?</p>
       <ul class="quiz-options">
-<li>postReceive</li>
-
-        <li data-correct="true">afterSendCompletion</li>
-
-        <li>preReceive</li>
-
-        <li>postSend</li>
-        </ul>
-      <p class="quiz-explain">afterSendCompletion always fires after the send operation completes, regardless of veto or exception.</p>
-    
-      </div>
+        <li data-correct="true">send() returns false and no more send-lifecycle hooks fire</li>
+        <li>send() returns false but afterSendCompletion still fires</li>
+        <li>The message is delivered with an empty payload</li>
+        <li>The channel throws an exception</li>
+      </ul>
+      <p class="quiz-explain">Returning null from preSend aborts the send immediately — send() returns false and postSend/afterSendCompletion are skipped.</p>
+    </div>
 
     <div class="quiz" data-quiz>
-<p class="quiz-q">How many hook methods does ChannelInterceptor define?</p>
-
       <p class="quiz-q">How many hook methods does ChannelInterceptor define?</p>
       <ul class="quiz-options">
-<li>4</li>
-
+        <li>4</li>
         <li>3</li>
-
         <li>7</li>
-
         <li data-correct="true">6</li>
-        </ul>
+      </ul>
       <p class="quiz-explain">Three for the send lifecycle (preSend, postSend, afterSendCompletion) and three for receive (preReceive, postReceive, afterReceiveCompletion).</p>
-    
-      </div>
+    </div>
 
     <div class="quiz" data-quiz>
-<p class="quiz-q">Which annotation applies an interceptor to all channels matching a name pattern?</p>
-
       <p class="quiz-q">Which annotation applies an interceptor to all channels matching a name pattern?</p>
       <ul class="quiz-options">
-<li>@Interceptor(pattern = "...")</li>
-
+        <li>@Interceptor(pattern = "...")</li>
         <li>@GlobalInterceptor</li>
-
         <li>@ChannelInterceptor</li>
-
         <li data-correct="true">@GlobalChannelInterceptor</li>
-        </ul>
+      </ul>
       <p class="quiz-explain">@GlobalChannelInterceptor on a ChannelInterceptor bean wires it to all matching channels automatically.</p>
-    
-      </div>
+    </div>
 
     <div class="quiz" data-quiz>
-<p class="quiz-q">What does the WireTap interceptor do?</p>
-
       <p class="quiz-q">What does the WireTap interceptor do?</p>
       <ul class="quiz-options">
-<li data-correct="true">Copies every message to a secondary channel without affecting the primary flow</li>
-
+        <li data-correct="true">Copies every message to a secondary channel without affecting the primary flow</li>
         <li>Adds latency measurement headers to every message</li>
-
         <li>Blocks messages until the secondary channel acknowledges them</li>
-
         <li>Transforms message payload for the primary subscriber</li>
-        </ul>
+      </ul>
       <p class="quiz-explain">WireTap is a read-only interceptor that sends a copy of each message to another channel.</p>
-    
-      </div>
+    </div>
 
     <div class="quiz" data-quiz>
-<p class="quiz-q">In what order do interceptors execute?</p>
-
       <p class="quiz-q">In what order do interceptors execute?</p>
       <ul class="quiz-options">
-<li>Alphabetical by bean name</li>
-
+        <li>Alphabetical by bean name</li>
         <li>Channel-specific, then global (by order)</li>
-
         <li data-correct="true">Global interceptors (by order), then channel-specific interceptors</li>
-
         <li>Declaration order on the channel</li>
-        </ul>
+      </ul>
       <p class="quiz-explain">Global interceptors run first (sorted by order attribute), then channel-specific interceptors added via addInterceptor().</p>
-    
-      </div>
+    </div>
 
     <div class="quiz" data-quiz>
-<p class="quiz-q">When postSend fires with sent=false, what does that mean?</p>
-
       <p class="quiz-q">When postSend fires with sent=false, what does that mean?</p>
       <ul class="quiz-options">
-<li data-correct="true">The message was vetoed or could not be delivered within the timeout</li>
-
+        <li data-correct="true">The message was dispatched but could not be delivered within the timeout</li>
         <li>An exception was thrown during dispatch</li>
-
         <li>The channel has no subscribers registered</li>
-
         <li>The channel is a PollableChannel</li>
-        </ul>
-      <p class="quiz-explain">sent=false means the message was not delivered — either preSend returned null (veto) or send() timed out.</p>
-    
-      </div>
+      </ul>
+      <p class="quiz-explain">postSend only fires after dispatch — sent=false means the dispatcher found no accepting subscriber within the timeout. (A veto from preSend aborts before dispatch, so postSend is never called.)</p>
+    </div>
 
     <div class="quiz" data-quiz>
-<p class="quiz-q">What does preReceive return to veto a receive operation?</p>
-
       <p class="quiz-q">What does preReceive return to veto a receive operation?</p>
       <ul class="quiz-options">
-<li>void — you cannot veto a receive</li>
-
+        <li>void — you cannot veto a receive</li>
         <li>an empty Message</li>
-
         <li data-correct="true">false</li>
-
         <li>null</li>
-        </ul>
+      </ul>
       <p class="quiz-explain">preReceive returns a boolean. Return false to cancel the receive before any message is retrieved.</p>
-    
-      </div>
+    </div>
 
     <p><strong>Written recall (say it out loud):</strong> Name the six ChannelInterceptor methods grouped by lifecycle (send vs receive), explain the veto mechanism, and describe the difference between a custom interceptor and a WireTap.</p>
   </div>

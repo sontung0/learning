@@ -101,7 +101,7 @@ public String handle(@Payload String p, @Header("locale") String locale) { ... }
       <tr><td><code>ChannelInterceptor</code></td><td>Strategy interface with hooks for intercepting send and receive operations on a <code>MessageChannel</code>.</td></tr>
       <tr><td><code>preSend</code></td><td>ChannelInterceptor hook — fires before dispatch; return <code>null</code> to veto the send.</td></tr>
       <tr><td><code>postSend</code></td><td>ChannelInterceptor hook — fires after dispatch with <code>sent=true/false</code>.</td></tr>
-      <tr><td><code>afterSendCompletion</code></td><td>ChannelInterceptor cleanup hook — always fires (even on veto or exception).</td></tr>
+      <tr><td><code>afterSendCompletion</code></td><td>ChannelInterceptor cleanup hook — fires on success or exception; <strong>not</strong> called when <code>preSend</code> returned <code>null</code>.</td></tr>
       <tr><td><code>preReceive</code></td><td>ChannelInterceptor hook — fires before receive; return <code>false</code> to veto.</td></tr>
       <tr><td><code>postReceive</code></td><td>ChannelInterceptor hook — fires after a message is received; can modify it.</td></tr>
       <tr><td><code>afterReceiveCompletion</code></td><td>ChannelInterceptor cleanup hook — always fires after a receive completes.</td></tr>
