@@ -98,6 +98,16 @@ public String handle(@Payload String p, @Header("locale") String locale) { ... }
       <tr><td><code>PollingConsumer</code></td><td>Endpoint that polls a <code>PollableChannel</code> via a scheduler-driven poller.</td></tr>
       <tr><td>Push model</td><td>Sender initiates delivery to subscriber(s) — <code>SubscribableChannel</code>.</td></tr>
       <tr><td>Pull model</td><td>Consumer requests the next message when ready — <code>PollableChannel</code>.</td></tr>
+      <tr><td><code>ChannelInterceptor</code></td><td>Strategy interface with hooks for intercepting send and receive operations on a <code>MessageChannel</code>.</td></tr>
+      <tr><td><code>preSend</code></td><td>ChannelInterceptor hook — fires before dispatch; return <code>null</code> to veto the send.</td></tr>
+      <tr><td><code>postSend</code></td><td>ChannelInterceptor hook — fires after dispatch with <code>sent=true/false</code>.</td></tr>
+      <tr><td><code>afterSendCompletion</code></td><td>ChannelInterceptor cleanup hook — always fires (even on veto or exception).</td></tr>
+      <tr><td><code>preReceive</code></td><td>ChannelInterceptor hook — fires before receive; return <code>false</code> to veto.</td></tr>
+      <tr><td><code>postReceive</code></td><td>ChannelInterceptor hook — fires after a message is received; can modify it.</td></tr>
+      <tr><td><code>afterReceiveCompletion</code></td><td>ChannelInterceptor cleanup hook — always fires after a receive completes.</td></tr>
+      <tr><td><code>@GlobalChannelInterceptor</code></td><td>Annotation that applies a <code>ChannelInterceptor</code> bean to all channels matching a name pattern.</td></tr>
+      <tr><td>Wire Tap</td><td>Pattern where a <code>ChannelInterceptor</code> copies messages to a secondary channel for monitoring/auditing without affecting the primary flow.</td></tr>
+      <tr><td><code>WireTap</code></td><td>Spring Integration's read-only interceptor class that implements the wire tap pattern.</td></tr>
     </tbody>
   </table>
 

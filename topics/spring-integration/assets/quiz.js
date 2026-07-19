@@ -35,10 +35,27 @@
     el.classList.add("quiz-wrong");
   }
 
+  /**
+   * Fisher-Yates shuffle (in-place).  Run once per quiz on initialisation
+   * so the correct answer isn't always the first option, preventing guessing.
+   */
+  function shuffleOptions(ul) {
+    var li = Array.prototype.slice.call(ul.children);
+    // Detach all children, then re-append in random order.
+    li.forEach(function (child) { ul.removeChild(child); });
+    for (var i = li.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = li[i];
+      li[i] = li[j];
+      li[j] = tmp;
+    }
+    li.forEach(function (child) { ul.appendChild(child); });
+  }
+
   function setupQuiz(quiz) {
-    var options = Array.prototype.slice.call(
-      quiz.querySelectorAll(".quiz-options li")
-    );
+    var ul = quiz.querySelector(".quiz-options");
+    shuffleOptions(ul);
+    var options = Array.prototype.slice.call(ul.children);
     var explain = quiz.querySelector(".quiz-explain");
     if (explain) {
       explain.style.display = "none";

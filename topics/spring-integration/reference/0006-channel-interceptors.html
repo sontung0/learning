@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reference • Channel Interceptors</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Reference</span>
+      <span>Channel Interceptors</span>
+    </div>
+    <h1>Channel Interceptors</h1>
+    <p><em>Quick-reference for ChannelInterceptor, global interceptors, and wire tap.</em></p>
+  </div>
+
+  <h2>ChannelInterceptor interface</h2>
+
+  <pre><code>public interface ChannelInterceptor {
+
+    // ── Send lifecycle ─────────────────────────────────────
+    Message&lt;?&gt; preSend(Message&lt;?&gt; message, MessageChannel channel);
+    void postSend(Message&lt;?&gt; message, MessageChannel channel, boolean sent);
+    void afterSendCompletion(
+            Message&lt;?&gt; message, MessageChannel channel, boolean sent, Exception ex);
+
+    // ── Receive lifecycle ──────────────────────────────────
+    boolean preReceive(MessageChannel channel);
+    Message&lt;?&gt; postReceive(Message&lt;?&gt; message, MessageChannel channel);
+    void afterReceiveCompletion(
+            Message&lt;?&gt; message, MessageChannel channel, Exception ex);
+}</code></pre>
+
+  <h2>Veto behaviour</h2>
+  <table>
+    <thead><tr><th>Method</th><th>Return value to veto</th></tr></thead>
+    <tbody>
+      <tr><td><code>preSend</code></td><td>Return <code>null</code> → cancels the send; <code>postSend</code> fires with <code>sent=false</code></td></tr>
+      <tr><td><code>preReceive</code></td><td>Return <code>false</code> → cancels the receive</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Attaching interceptors</h2>
+
+  <h3>Per-channel (Java config)</h3>
+  <pre><code>DirectChannel channel = new DirectChannel();
+channel.addInterceptor(myInterceptor());</code></pre>
+
+  <h3>Global interceptor</h3>
+  <pre><code>@Bean
+@GlobalChannelInterceptor(patterns = "input*", order = 3)
+public ChannelInterceptor loggingInterceptor() {
+    return new ChannelInterceptor() {
+        @Override
+        public Message&lt;?&gt; preSend(Message&lt;?&gt; message, MessageChannel channel) {
+            log.info("[{}] sending: {}", channel, message.getPayload());
+            return message;
+        }
+    };
+}</code></pre>
+
+  <table>
+    <thead><tr><th>Attribute</th><th>Description</th><th>Default</th></tr></thead>
+    <tbody>
+      <tr><td><code>patterns</code></td><td>Comma-separated globs (<code>"input*, !cat*"</code> to exclude)</td><td><code>"*"</code> (all channels)</td></tr>
+      <tr><td><code>order</code></td><td>Execution order (ascending)</td><td>Lowest precedence</td></tr>
+    </tbody>
+  </table>
+
+  <h2>WireTap</h2>
+  <pre><code>// Copy messages to auditChannel without affecting the primary flow
+@Bean
+@GlobalChannelInterceptor(patterns = "orders")
+public WireTap ordersWireTap(MessageChannel auditChannel) {
+    return new WireTap(auditChannel);
+}</code></pre>
+
+  <h3>DSL wire tap</h3>
+  <pre><code>@Bean
+public PollableChannel myChannel() {
+    return MessageChannels.queue()
+            .wireTap("loggingFlow.input")
+            .get();
+}</code></pre>
+
+  <h2>Execution order</h2>
+  <ol>
+    <li>Global interceptors (<code>@GlobalChannelInterceptor</code>) — sorted by <code>order</code> ascending</li>
+    <li>Channel-specific interceptors (<code>addInterceptor()</code>)</li>
+    <li>Message dispatch to subscriber(s)</li>
+    <li><code>postSend</code> fires with the result</li>
+    <li><code>afterSendCompletion</code> fires (always)</li>
+  </ol>
+
+  <h2>Send lifecycle diagram</h2>
+  <pre><code>send() called
+  └→ preSend()      ← return null to veto
+      └→ dispatch to subscriber(s)
+          └→ postSend(sent=true|false)
+              └→ afterSendCompletion()  ← always fires</code></pre>
+
+  <h2>Custom interceptor vs WireTap</h2>
+  <table>
+    <thead><tr><th></th><th>Custom ChannelInterceptor</th><th>WireTap</th></tr></thead>
+    <tbody>
+      <tr><td>Modify messages</td><td>Yes — transform in preSend/postReceive</td><td>No — read-only copy</td></tr>
+      <tr><td>Veto messages</td><td>Yes — return null/false</td><td>No</td></tr>
+      <tr><td>Typical use</td><td>Validation, filtering, header injection, metrics</td><td>Audit logging, debugging, monitoring</td></tr>
+    </tbody>
+  </table>
+
+  <div class="reminder">
+    <strong>Source:</strong>
+    <a href="https://docs.spring.io/spring-integration/reference/channel/interceptors.html" target="_blank">Spring Integration Reference — Channel Interceptors</a>
+    and
+    <a href="https://docs.spring.io/spring-integration/reference/channel/configuration.html" target="_blank">Channel Configuration</a>.
+    Built from <a href="../lessons/0006-channel-interceptors.html">Lesson 0006</a>.
+  </div>
+</body>
+</html>

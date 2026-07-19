@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0006 • Channel Interceptors</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0006</span>
+      <span>Phase 2 • Core Messaging</span>
+      <span>~20 min</span>
+    </div>
+    <h1>Channel Interceptors</h1>
+    <p><em>Intercepting send and receive operations with <code>ChannelInterceptor</code>, global interceptors, and the wire tap pattern.</em></p>
+  </div>
+
+  <h2>Why this lesson exists</h2>
+
+  <p>By now you know that every message crosses a channel between producer and consumer. But what if you need to <strong>inspect</strong>, <strong>modify</strong>, or <strong>redirect</strong> a message at the moment it passes the channel boundary — without changing the producer or consumer code?</p>
+
+  <p>That is exactly what <code>ChannelInterceptor</code> gives you: hook methods that fire before and after every <code>send()</code> and <code>receive()</code> call. You can validate messages, measure latency, redact sensitive headers, or copy messages to a monitoring channel — all through a single strategy interface <a href="https://docs.spring.io/spring-integration/reference/channel/interceptors.html" target="_blank">[ref]</a>.</p>
+
+  <div class="callout primary">
+    <strong>Mission tie-in:</strong> Every production integration needs cross-cutting observability — message logging, audit trails, SLA monitoring. Channel interceptors are where you add that without polluting your business endpoints. The wire tap pattern (a specialised interceptor) is the standard way to feed messages to a logging or metrics pipeline without slowing the main flow.
+  </div>
+
+  <h2>The <code>ChannelInterceptor</code> interface</h2>
+
+  <p>Six hook methods, three for send and three for receive <a href="https://docs.spring.io/spring-integration/reference/channel/interceptors.html" target="_blank">[ref]</a>:</p>
+
+  <pre><code>public interface ChannelInterceptor {
+
+    Message&lt;?&gt; preSend(Message&lt;?&gt; message, MessageChannel channel);
+
+    void postSend(Message&lt;?&gt; message, MessageChannel channel, boolean sent);
+
+    void afterSendCompletion(
+            Message&lt;?&gt; message, MessageChannel channel, boolean sent, Exception ex);
+
+    boolean preReceive(MessageChannel channel);
+
+    Message&lt;?&gt; postReceive(Message&lt;?&gt; message, MessageChannel channel);
+
+    void afterReceiveCompletion(
+            Message&lt;?&gt; message, MessageChannel channel, Exception ex);
+}</code></pre>
+
+  <h3>Send lifecycle</h3>
+
+  <table>
+    <thead>
+      <tr><th>Method</th><th>When it fires</th><th>What you can do</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>preSend</code></td><td>After a producer calls <code>send()</code>, before the message is dispatched to subscribers</td><td>Modify the message, return <code>null</code> to veto delivery</td></tr>
+      <tr><td><code>postSend</code></td><td>Immediately after the message has been dispatched</td><td>Observe success (<code>sent=true</code>) or rejection (<code>sent=false</code> but no exception)</td></tr>
+      <tr><td><code>afterSendCompletion</code></td><td>After the entire send operation completes (success or exception)</td><td>Cleanup — always fires, even when <code>preSend</code> returned <code>null</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Receive lifecycle</h3>
+
+  <table>
+    <thead>
+      <tr><th>Method</th><th>When it fires</th><th>What you can do</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>preReceive</code></td><td>After a consumer calls <code>receive()</code>, before the message is retrieved from a buffered channel</td><td>Return <code>false</code> to veto the receive</td></tr>
+      <tr><td><code>postReceive</code></td><td>Immediately after a message has been received</td><td>Modify the message before the consumer sees it</td></tr>
+      <tr><td><code>afterReceiveCompletion</code></td><td>After the receive operation completes</td><td>Cleanup — always fires</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warning">
+    <strong>preSend returns a Message — not void.</strong> To modify the message, return a new or transformed copy. To veto delivery entirely, return <code>null</code> — the framework treats a null return as "cancel this send".
+  </div>
+
+  <h2>Attaching an interceptor to a channel</h2>
+
+  <p>Interceptors are registered on the channel's <code>interceptors</code> list. In Java configuration <a href="https://docs.spring.io/spring-integration/reference/channel/configuration.html" target="_blank">[ref]</a>:</p>
+
+  <pre><code>@Bean
+public DirectChannel myChannel() {
+    DirectChannel channel = new DirectChannel();
+    channel.addInterceptor(myInterceptor());
+    return channel;
+}
+
+@Bean
+public MyInterceptor myInterceptor() {
+    return new MyInterceptor();
+}</code></pre>
+
+  <p>Or inline with a lambda:</p>
+
+  <pre><code>channel.addInterceptor(new ChannelInterceptor() {
+    @Override
+    public Message&lt;?&gt; preSend(Message&lt;?&gt; message, MessageChannel channel) {
+        log.info("Sending: {}", message.getPayload());
+        return message;
+    }
+});</code></pre>
+
+  <h2>Global interceptors (<code>@GlobalChannelInterceptor</code>)</h2>
+
+  <p>Attaching interceptors one channel at a time gets repetitive. Spring Integration provides <code>@GlobalChannelInterceptor</code> — a bean-level annotation that applies your interceptor to <strong>all</strong> channels (or a named subset) <a href="https://docs.spring.io/spring-integration/reference/channel/configuration.html" target="_blank">[ref]</a>:</p>
+
+  <pre><code>@Bean
+@GlobalChannelInterceptor(patterns = "input*", order = 3)
+public ChannelInterceptor loggingInterceptor() {
+    return new ChannelInterceptor() {
+        @Override
+        public Message&lt;?&gt; preSend(Message&lt;?&gt; message, MessageChannel channel) {
+            log.info("[{}] sending: {}", channel, message.getPayload());
+            return message;
+        }
+    };
+}</code></pre>
+
+  <table>
+    <thead>
+      <tr><th>Attribute</th><th>Meaning</th><th>Default</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>patterns</code></td><td>Comma-separated glob patterns (e.g. <code>"input*, !cat*"</code> to exclude <code>cat*</code>)</td><td><code>"*"</code> — all channels</td></tr>
+      <tr><td><code>order</code></td><td>Controls execution order relative to other global interceptors</td><td>Last (lowest precedence)</td></tr>
+    </tbody>
+  </table>
+
+  <p>If multiple global interceptors match, they run in <code>order</code> ascending. Interceptors registered directly on a specific channel run <strong>after</strong> global interceptors by default (but this can be configured with <code>setInterceptorCaptureMaxCount</code> and ordering on the channel dispatcher).</p>
+
+  <h2>The wire tap pattern</h2>
+
+  <p>A <strong>wire tap</strong> is a non-intrusive interceptor that copies every message to a secondary channel — for logging, auditing, metrics, or debugging — without affecting the primary message flow <a href="https://docs.spring.io/spring-integration/reference/channel/configuration.html" target="_blank">[ref]</a>.</p>
+
+  <p>Spring Integration provides the <code>WireTap</code> class, which implements <code>ChannelInterceptor</code>. You add it to a channel the same way:</p>
+
+  <pre><code>@Bean
+public DirectChannel orders() {
+    return new DirectChannel();
+}
+
+@Bean
+@GlobalChannelInterceptor(patterns = "orders")
+public WireTap ordersWireTap(MessageChannel auditChannel) {
+    return new WireTap(auditChannel);
+}
+
+@Bean
+public DirectChannel auditChannel() {
+    return new DirectChannel();
+}</code></pre>
+
+  <p>Every message sent to the <code>orders</code> channel is also sent (as a copy) to <code>auditChannel</code>. The primary subscriber on <code>orders</code> is unaffected.</p>
+
+  <p>You can also configure a wire tap inline on a channel built via the Java DSL <a href="https://docs.spring.io/spring-integration/reference/dsl/java-channels.html" target="_blank">[ref]</a>:</p>
+
+  <pre><code>@Bean
+public PollableChannel myChannel() {
+    return MessageChannels.queue()
+            .wireTap("loggingFlow.input")
+            .get();
+}</code></pre>
+
+  <div class="callout success">
+    <strong>When to wire tap:</strong> use a wire tap for cross-cutting concerns (logging, metrics, audit). Use a custom <code>ChannelInterceptor</code> when you need to <em>modify</em> or <em>veto</em> messages — the wire tap is deliberately read-only.
+  </div>
+
+  <h2>Practical: vetoing messages</h2>
+
+  <p>Returning <code>null</code> from <code>preSend</code> cancels the send. This is useful for traffic filtering, rate limiting, or content-based gating:</p>
+
+  <pre><code>channel.addInterceptor(new ChannelInterceptor() {
+    @Override
+    public Message&lt;?&gt; preSend(Message&lt;?&gt; message, MessageChannel channel) {
+        if ("DROP".equals(message.getPayload())) {
+            log.warn("Vetoed: {}", message.getPayload());
+            return null;     // ← cancels this send
+        }
+        return message;
+    }
+});</code></pre>
+
+  <p>When a message is vetoed, <code>send()</code> returns <code>false</code> and <code>postSend</code> fires with <code>sent=false</code>. <code>afterSendCompletion</code> still fires — always, regardless of veto or exception.</p>
+
+  <h2>Interceptors vs subscribers: the order</h2>
+
+  <p>Understanding the execution order is critical for debugging:</p>
+
+  <ol>
+    <li>Global interceptors (<code>@GlobalChannelInterceptor</code>) run in <code>order</code> ascending.</li>
+    <li>Channel-specific interceptors (<code>channel.addInterceptor()</code>) run next.</li>
+    <li>The message is dispatched to subscriber(s).</li>
+    <li><code>postSend</code> fires with the result.</li>
+    <li><code>afterSendCompletion</code> fires (cleanup).</li>
+  </ol>
+
+  <p>On <code>preReceive</code>, the same layered order applies: global first, then channel-specific.</p>
+
+  <h2>Code along (sandbox)</h2>
+
+  <p>Open <code>com.learning.si.lesson0006.Lesson0006Config</code> — it demonstrates three interceptor patterns:</p>
+
+  <ul>
+    <li><strong>Custom ChannelInterceptor (veto):</strong> a logging interceptor attached to a <code>DirectChannel</code>. It logs every message in <code>preSend</code>/<code>postSend</code>/<code>afterSendCompletion</code>, and returns <code>null</code> from <code>preSend</code> if the payload equals <code>"veto"</code>, cancelling delivery.</li>
+    <li><strong>WireTap:</strong> a <code>WireTap</code> interceptor attached to a second channel copies every message to a logging channel adapter. Both the primary subscriber and the wire tap receive each message.</li>
+    <li><strong>Global interceptor:</strong> a <code>@GlobalChannelInterceptor</code> bean that adds a simple "intercepted" header to every message passing through any channel matching <code>global*</code>.</li>
+  </ul>
+
+  <pre><code>cd topics/spring-integration/sandbox
+./mvnw spring-boot:run -Dspring-boot.run.profiles=lesson0006</code></pre>
+
+  <h2>Primary source</h2>
+  <p><a href="https://docs.spring.io/spring-integration/reference/channel/interceptors.html" target="_blank">Channel Interceptors</a> — the full reference page.</p>
+  <p><a href="https://docs.spring.io/spring-integration/reference/channel/configuration.html" target="_blank">Global Channel Interceptor Configuration</a> — <code>@GlobalChannelInterceptor</code> and wire tap details.</p>
+  <p>Quick reference: <a href="../reference/0006-channel-interceptors.html">Channel Interceptors Cheatsheet</a>.</p>
+  <p>Glossary: <a href="../reference/0001-core-concepts.html">Core Concepts &amp; Glossary</a>.</p>
+
+  <h2>Assessment — retrieve everything</h2>
+
+  <div class="assessment">
+    <p>Answer each without scrolling up. Click an option to check yourself.</p>
+
+    <div class="quiz" data-quiz>
+<p class="quiz-q">What must preSend return to veto a message?</p>
+
+      <p class="quiz-q">What must preSend return to veto a message?</p>
+      <ul class="quiz-options">
+<li>the original Message unchanged</li>
+
+        <li data-correct="true">null</li>
+
+        <li>false</li>
+
+        <li>an empty Message</li>
+        </ul>
+      <p class="quiz-explain">Returning null from preSend cancels the send — the framework treats null as a veto.</p>
+    
+      </div>
+
+    <div class="quiz" data-quiz>
+<p class="quiz-q">Which method is guaranteed to fire even when preSend returns null?</p>
+
+      <p class="quiz-q">Which method is guaranteed to fire even when preSend returns null?</p>
+      <ul class="quiz-options">
+<li>postReceive</li>
+
+        <li data-correct="true">afterSendCompletion</li>
+
+        <li>preReceive</li>
+
+        <li>postSend</li>
+        </ul>
+      <p class="quiz-explain">afterSendCompletion always fires after the send operation completes, regardless of veto or exception.</p>
+    
+      </div>
+
+    <div class="quiz" data-quiz>
+<p class="quiz-q">How many hook methods does ChannelInterceptor define?</p>
+
+      <p class="quiz-q">How many hook methods does ChannelInterceptor define?</p>
+      <ul class="quiz-options">
+<li>4</li>
+
+        <li>3</li>
+
+        <li>7</li>
+
+        <li data-correct="true">6</li>
+        </ul>
+      <p class="quiz-explain">Three for the send lifecycle (preSend, postSend, afterSendCompletion) and three for receive (preReceive, postReceive, afterReceiveCompletion).</p>
+    
+      </div>
+
+    <div class="quiz" data-quiz>
+<p class="quiz-q">Which annotation applies an interceptor to all channels matching a name pattern?</p>
+
+      <p class="quiz-q">Which annotation applies an interceptor to all channels matching a name pattern?</p>
+      <ul class="quiz-options">
+<li>@Interceptor(pattern = "...")</li>
+
+        <li>@GlobalInterceptor</li>
+
+        <li>@ChannelInterceptor</li>
+
+        <li data-correct="true">@GlobalChannelInterceptor</li>
+        </ul>
+      <p class="quiz-explain">@GlobalChannelInterceptor on a ChannelInterceptor bean wires it to all matching channels automatically.</p>
+    
+      </div>
+
+    <div class="quiz" data-quiz>
+<p class="quiz-q">What does the WireTap interceptor do?</p>
+
+      <p class="quiz-q">What does the WireTap interceptor do?</p>
+      <ul class="quiz-options">
+<li data-correct="true">Copies every message to a secondary channel without affecting the primary flow</li>
+
+        <li>Adds latency measurement headers to every message</li>
+
+        <li>Blocks messages until the secondary channel acknowledges them</li>
+
+        <li>Transforms message payload for the primary subscriber</li>
+        </ul>
+      <p class="quiz-explain">WireTap is a read-only interceptor that sends a copy of each message to another channel.</p>
+    
+      </div>
+
+    <div class="quiz" data-quiz>
+<p class="quiz-q">In what order do interceptors execute?</p>
+
+      <p class="quiz-q">In what order do interceptors execute?</p>
+      <ul class="quiz-options">
+<li>Alphabetical by bean name</li>
+
+        <li>Channel-specific, then global (by order)</li>
+
+        <li data-correct="true">Global interceptors (by order), then channel-specific interceptors</li>
+
+        <li>Declaration order on the channel</li>
+        </ul>
+      <p class="quiz-explain">Global interceptors run first (sorted by order attribute), then channel-specific interceptors added via addInterceptor().</p>
+    
+      </div>
+
+    <div class="quiz" data-quiz>
+<p class="quiz-q">When postSend fires with sent=false, what does that mean?</p>
+
+      <p class="quiz-q">When postSend fires with sent=false, what does that mean?</p>
+      <ul class="quiz-options">
+<li data-correct="true">The message was vetoed or could not be delivered within the timeout</li>
+
+        <li>An exception was thrown during dispatch</li>
+
+        <li>The channel has no subscribers registered</li>
+
+        <li>The channel is a PollableChannel</li>
+        </ul>
+      <p class="quiz-explain">sent=false means the message was not delivered — either preSend returned null (veto) or send() timed out.</p>
+    
+      </div>
+
+    <div class="quiz" data-quiz>
+<p class="quiz-q">What does preReceive return to veto a receive operation?</p>
+
+      <p class="quiz-q">What does preReceive return to veto a receive operation?</p>
+      <ul class="quiz-options">
+<li>void — you cannot veto a receive</li>
+
+        <li>an empty Message</li>
+
+        <li data-correct="true">false</li>
+
+        <li>null</li>
+        </ul>
+      <p class="quiz-explain">preReceive returns a boolean. Return false to cancel the receive before any message is retrieved.</p>
+    
+      </div>
+
+    <p><strong>Written recall (say it out loud):</strong> Name the six ChannelInterceptor methods grouped by lifecycle (send vs receive), explain the veto mechanism, and describe the difference between a custom interceptor and a WireTap.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <a href="0005-channel-implementations.html">← Previous: Message Channel Implementations</a>
+    <a href="0007-messaging-template.html">Next lesson → MessagingTemplate</a>
+  </div>
+
+  <div class="reminder">
+    <strong>Reminder:</strong> I'm your teacher for this track. If any of this is fuzzy, ask a followup in chat before moving to Lesson 0007.
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>
