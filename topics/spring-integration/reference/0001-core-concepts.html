@@ -130,6 +130,10 @@ public String handle(@Payload String p, @Header("locale") String locale) { ... }
       <tr><td><code>PollSkipAdvice</code></td><td><code>MethodInterceptor</code> wrapping the poller's <code>receive</code> call; <code>shouldSkip()</code> returns <code>true</code> to skip this poll cycle.</td></tr>
       <tr><td><code>ReceiveMessageAdvice</code></td><td>Extension point for <code>receive()</code> calls; built-in implementations include <code>SimpleActiveIdleReceiveMessageAdvice</code> and <code>CompoundTriggerAdvice</code>.</td></tr>
       <tr><td><code>SimpleActiveIdleReceiveMessageAdvice</code></td><td>Fires callbacks when the polled source transitions between active (receiving messages) and idle (returning <code>null</code>) states.</td></tr>
+      <tr><td><strong>Channel Adapter</strong></td><td>Message endpoint that connects a single producer or consumer to a <code>MessageChannel</code> — the simplest endpoint type.</td></tr>
+      <tr><td><strong>Inbound Channel Adapter</strong></td><td>Producer endpoint (<code>SourcePollingChannelAdapter</code>) that polls a method/expression/<code>MessageSource</code> and sends non-null results to a channel.</td></tr>
+      <tr><td><strong>Outbound Channel Adapter</strong></td><td>Consumer endpoint (sink) that receives messages from a channel and passes payloads to a void-returning method.</td></tr>
+      <tr><td><code>@InboundChannelAdapter</code></td><td>Annotation marking a method as an inbound channel adapter source — must be on a <code>MessageSource</code>, <code>Supplier</code>, or plain method inside a managed bean.</td></tr>
     </tbody>
   </table>
 

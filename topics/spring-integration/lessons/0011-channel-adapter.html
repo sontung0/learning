@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0011 • Channel Adapter</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0011</span>
+      <span>Phase 3 • Endpoints &amp; Polling</span>
+      <span>~20 min</span>
+    </div>
+    <h1>Channel Adapter</h1>
+    <p><em>The message endpoint that connects a single producer or consumer to a channel — the simplest way to bridge your application code with the messaging system.</em></p>
+  </div>
+
+  <h2>Why this lesson exists</h2>
+
+  <p>A <strong>channel adapter</strong> is a message endpoint that connects a single sender or receiver to a <code>MessageChannel</code>. It's the simplest endpoint type: there's no routing, splitting, or aggregation — just produce or consume <a href="https://docs.spring.io/spring-integration/reference/channel-adapter.html" target="_blank">[ref]</a>.</p>
+
+  <p>There are two directions:</p>
+  <ul>
+    <li><strong>Inbound Channel Adapter</strong> — a producer endpoint. It polls a method or expression and sends every non-null return value to a channel (wrapping it as a <code>Message</code>).</li>
+    <li><strong>Outbound Channel Adapter</strong> — a consumer endpoint. It receives messages from a channel and invokes a void-returning "sink" method. There is no reply — the message ends here.</li>
+  </ul>
+
+  <div class="callout primary">
+    <strong>Mission tie-in:</strong> Channel adapters are the on-ramps and off-ramps of your integration flows. Every file adapter, JMS adapter, HTTP adapter, mail adapter, and so on is built on this pattern. Understanding the base pattern means you understand every transport adapter in the framework.
+  </div>
+
+  <h2>1. Inbound Channel Adapter (<code>@InboundChannelAdapter</code>)</h2>
+
+  <p>The inbound adapter is a <code>SourcePollingChannelAdapter</code> that polls a method (or expression) and sends the result to an output channel <a href="https://docs.spring.io/spring-integration/reference/channel-adapter.html#_configuring_an_inbound_channel_adapter" target="_blank">[ref]</a>.</p>
+
+  <p>You can configure it with the <code>@InboundChannelAdapter</code> annotation on any method that returns a non-null value:</p>
+
+  <pre><code>@InboundChannelAdapter(channel = "adapterChannel",
+                       poller = @Poller(fixedRate = "1000"))
+public String timestampSource() {
+    return "adapter-" + Instant.now();
+}</code></pre>
+
+  <p>The contract:</p>
+  <ul>
+    <li>The method is invoked on each poll cycle.</li>
+    <li>If the return value is <strong>non-null</strong>, it's wrapped in a <code>Message</code> and sent to the named channel.</li>
+    <li>If the return value is <strong>null</strong>, the poll cycle is skipped (no message sent).</li>
+    <li>The annotation is placed on a <strong>method</strong> (not on a <code>@Bean</code> method — it works on a plain method inside a <code>@Configuration</code> class or a <code>@Component</code>).</li>
+  </ul>
+
+  <p>The same pattern expressed with the Java DSL:</p>
+
+  <pre><code>@Bean
+public IntegrationFlow inboundFlow() {
+    return IntegrationFlow.from(
+            (MessageSource&lt;String&gt;) () ->
+                    MessageBuilder.withPayload("dsl-" + Instant.now()).build(),
+            c -> c.poller(Pollers.fixedRate(1500)))
+            .channel("dslChannel")
+            .get();
+}</code></pre>
+
+  <p>The DSL form gives you more control — you can chain transformers, filters, or handlers directly without creating intermediate channel beans.</p>
+
+  <h2>2. Outbound Channel Adapter (<code>@ServiceActivator</code> as sink)</h2>
+
+  <p>The outbound channel adapter receives messages from a channel and passes the payload to a consumer method. The method should have a <code>void</code> return type — it's the end of the flow <a href="https://docs.spring.io/spring-integration/reference/channel-adapter.html#_configuring_an_outbound_channel_adapter" target="_blank">[ref]</a>.</p>
+
+  <pre><code>@ServiceActivator(inputChannel = "outboundSink")
+public void handleOutbound(String payload) {
+    log.info("[outbound-consumer] handled: {}", payload);
+}</code></pre>
+
+  <p>If the channel is a <code>PollableChannel</code>, add a <code>@Poller</code>:</p>
+
+  <pre><code>@ServiceActivator(channel = "queueChannel",
+    poller = @Poller(fixedRate = "3000"))
+public void handleOutbound(String payload) { ... }</code></pre>
+
+  <p>Unlike the inbound adapter, the outbound adapter is just a <code>@ServiceActivator</code> that happens to be a sink — it uses the same endpoint infrastructure you've seen in previous lessons.</p>
+
+  <h2>3. Expression-based adapters</h2>
+
+  <p>Instead of a <code>ref+method</code> pair, you can use SpEL expressions directly <a href="https://docs.spring.io/spring-integration/reference/channel-adapter.html#_channel_adapter_expressions_and_scripts" target="_blank">[ref]</a>:</p>
+
+  <pre><code>&lt;int:inbound-channel-adapter channel="channel1"
+    expression="@systemPropertySource.getProperty('my.property')"
+    poller="defaultPoller"/&gt;
+
+&lt;int:outbound-channel-adapter channel="channel2"
+    expression="'Received: '.concat(payload)"/&gt;</code></pre>
+
+  <p>For inbound adapters, the expression is evaluated on each poll. A non-null result becomes the message payload. For outbound adapters, the expression acts as a void-returning consumer.</p>
+
+  <p>Scripts (Groovy, Ruby, etc.) can also be used via the <code>script</code> sub-element, with optional <code>refresh-check-delay</code> for hot-reloading.</p>
+
+  <h2>4. Default poller and implicit channels</h2>
+
+  <p>If you omit the <code>poller</code> from an inbound adapter, a <strong>single default poller</strong> must be registered in the context. The default trigger is a <code>PeriodicTrigger</code> with a 1 second fixed delay <a href="https://docs.spring.io/spring-integration/reference/channel-adapter.html" target="_blank">[ref]</a>.</p>
+
+  <p>If you omit both <code>channel</code> and <code>id</code> on an outbound adapter, the framework creates an implicit <code>DirectChannel</code> named after the adapter's <code>id</code>.</p>
+
+  <h2>Run the sandbox</h2>
+
+  <pre><code>cd topics/spring-integration/sandbox
+./mvnw spring-boot:run -Dspring-boot.run.profiles=lesson0011</code></pre>
+
+  <table>
+    <thead><tr><th>Section</th><th>What it demonstrates</th><th>Expected output</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>@InboundChannelAdapter</code> polling a method every 1s</td><td><code>[adapter] received #1: adapter-...</code> (repeating every second)</td></tr>
+      <tr><td>2</td><td>DSL <code>IntegrationFlow.from(MessageSource, poller)</code></td><td><code>[dsl] received #1: dsl-...</code> every 1.5s</td></tr>
+      <tr><td>3</td><td>Outbound adapter via <code>@ServiceActivator</code> sink</td><td><code>[outbound-consumer] handled: outbound-1</code> etc.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Key takeaways</h2>
+
+  <ul>
+    <li><strong>Inbound Channel Adapter</strong> — polls a producer method/expression; non-null results become messages on the output channel. Backed by <code>SourcePollingChannelAdapter</code>.</li>
+    <li><strong>Outbound Channel Adapter</strong> — a sink endpoint: receives messages and passes payloads to a void-returning method. Backed by <code>@ServiceActivator</code> (or <code>EventDrivenConsumer</code> / <code>PollingConsumer</code>).</li>
+    <li><strong>Three configuration styles:</strong> annotation (<code>@InboundChannelAdapter</code>), Java DSL (<code>IntegrationFlow.from(…, poller)</code>), and XML (<code>&lt;int:inbound-channel-adapter&gt;</code> / <code>&lt;int:outbound-channel-adapter&gt;</code>).</li>
+    <li><strong>Expression and script support</strong> — SpEL expressions and scripting languages can replace ref+method for dynamic adapters.</li>
+    <li><strong>Default poller</strong> — if not specified, a default with <code>PeriodicTrigger</code> (1s fixed delay) is used. A default poller bean must be registered if multiple adapters share the same schedule.</li>
+    <li>Channel adapters are the foundation of all transport-specific adapters (file, JMS, HTTP, mail, etc.).</li>
+  </ul>
+
+  <h2>Primary sources</h2>
+
+  <p>Read the official reference:</p>
+  <ul>
+    <li><a href="https://docs.spring.io/spring-integration/reference/channel-adapter.html" target="_blank">Channel Adapter</a></li>
+  </ul>
+
+  <!-- ── Assessment ──────────────────────────────────────────────────── -->
+
+  <div class="assessment">
+
+    <h2>Action / Assessment</h2>
+    <p><em>Test your understanding of channel adapters.</em></p>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the primary purpose of an inbound channel adapter?</p>
+      <ul class="quiz-options">
+        <li>To consume messages from a channel and invoke a sink method</li>
+        <li data-correct="true">To poll a producer method and send non-null results to a channel</li>
+        <li>To route messages between channels</li>
+        <li>To transform message payloads</li>
+      </ul>
+      <p class="quiz-explain">An inbound channel adapter polls a source (method, expression, or MessageSource) and sends every non-null result to the output channel.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What happens when an @InboundChannelAdapter method returns null?</p>
+      <ul class="quiz-options">
+        <li>A null message is sent</li>
+        <li data-correct="true">The poll cycle is skipped — no message is produced</li>
+        <li>An exception is thrown</li>
+        <li>The adapter stops polling</li>
+      </ul>
+      <p class="quiz-explain">null return means "nothing to produce this cycle". The framework skips the send and polls again on schedule.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which framework endpoint backs @InboundChannelAdapter?</p>
+      <ul class="quiz-options">
+        <li>EventDrivenConsumer</li>
+        <li data-correct="true">SourcePollingChannelAdapter</li>
+        <li>PollingConsumer</li>
+        <li>MessageProducer</li>
+      </ul>
+      <p class="quiz-explain">@InboundChannelAdapter is a SourcePollingChannelAdapter — it polls a MessageSource (the annotated method) and forwards to the output channel.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What must an outbound channel adapter method return?</p>
+      <ul class="quiz-options">
+        <li>A Message</li>
+        <li>A non-null payload</li>
+        <li data-correct="true">void</li>
+        <li>A boolean</li>
+      </ul>
+      <p class="quiz-explain">An outbound channel adapter is a sink — it receives messages and passes payloads to a void method. There's no further output.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What type is a @ServiceActivator used as an outbound channel adapter on a DirectChannel?</p>
+      <ul class="quiz-options">
+        <li>PollingConsumer</li>
+        <li data-correct="true">EventDrivenConsumer</li>
+        <li>SourcePollingChannelAdapter</li>
+        <li>ChannelInterceptor</li>
+      </ul>
+      <p class="quiz-explain">On a DirectChannel (SubscribableChannel), the @ServiceActivator is an EventDrivenConsumer — messages arrive by push. On a QueueChannel, the same annotation with @Poller becomes a PollingConsumer.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the default trigger for a poller when none is specified on an inbound adapter?</p>
+      <ul class="quiz-options">
+        <li>fixedRate of 500ms</li>
+        <li>cron expression "0/5 * * * * *"</li>
+        <li data-correct="true">PeriodicTrigger with 1 second fixed delay</li>
+        <li>There is no default; a poller must always be provided</li>
+      </ul>
+      <p class="quiz-explain">The default trigger is a PeriodicTrigger with a 1 second fixed delay. A default poller bean must be registered if multiple adapters share this default schedule.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What happens if an inbound channel adapter is configured without an explicit channel?</p>
+      <ul class="quiz-options">
+        <li>Messages are discarded</li>
+        <li data-correct="true">An implicit DirectChannel is created with the adapter's id as the channel name</li>
+        <li>The adapter uses the errorChannel</li>
+        <li>A runtime exception is thrown</li>
+      </ul>
+      <p class="quiz-explain">If channel is omitted, the framework creates an implicit DirectChannel named after the id attribute (XML config) or the bean name.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which three configuration styles are available for channel adapters?</p>
+      <ul class="quiz-options">
+        <li>YAML, JSON, TOML</li>
+        <li data-correct="true">Annotations, Java DSL, XML</li>
+        <li>Properties, XML, SQL</li>
+        <li>Java, Kotlin, Groovy DSL</li>
+      </ul>
+      <p class="quiz-explain">Spring Integration supports three configuration styles for channel adapters: annotations (@InboundChannelAdapter/@ServiceActivator), Java DSL (IntegrationFlow), and XML namespace.</p>
+    </div>
+
+    <p><strong>Written recall (say it out loud):</strong> Explain the difference between an inbound channel adapter and a @ServiceActivator on a PollableChannel with @Poller — what does each endpoint type do differently? Then describe a real-world scenario where you'd use each pattern.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <a href="0010-poller.html">← Previous: The Poller</a>
+    <a href="0012-messaging-bridge.html">Next lesson → Messaging Bridge</a>
+  </div>
+
+  <div class="reminder">
+    <strong>Reminder:</strong> I'm your teacher for this track. If any of this is fuzzy, ask a followup in chat before moving to Lesson 0012.
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>
