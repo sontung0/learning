@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0013 • Transformer</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0013</span>
+      <span>Phase 3 • Endpoints &amp; Polling</span>
+      <span>~20 min</span>
+    </div>
+    <h1>Transformer</h1>
+    <p><em>An endpoint that modifies the message payload, headers, or both — the Swiss Army knife of message transformation.</em></p>
+  </div>
+
+  <h2>Why this lesson exists</h2>
+
+  <p>A <strong>transformer</strong> is a Message Endpoint that converts a message's payload, headers, or both. Unlike a channel adapter (which connects to external systems) or a bridge (which forwards unchanged), a transformer modifies the message in flight. This is one of the most commonly used endpoints in any integration flow <a href="https://docs.spring.io/spring-integration/reference/transformer.html" target="_blank">[ref]</a>.</p>
+
+  <p>Spring Integration provides many built-in transformers (Object-to-String, JSON, Stream, Avro, Protobuf) and a powerful SpEL expression transformer. You can also write a plain POJO method with <code>@Transformer</code> for custom transformations.</p>
+
+  <div class="callout primary">
+    <strong>Key rule:</strong> A transformer <strong>must not return <code>null</code></strong>. If the method returns <code>null</code>, the framework throws a <code>MessageTransformationException</code>. This is because the <code>requiresReply</code> attribute is always <code>true</code> for transformers. If you need a conditional path that may return nothing, use <code>@ServiceActivator</code> instead.
+  </div>
+
+  <h2>1. @Transformer annotation</h2>
+
+  <p>The simplest transformer is a POJO method annotated with <code>@Transformer</code> <a href="https://docs.spring.io/spring-integration/reference/transformer.html#_transformer_annotation" target="_blank">[ref]</a>:</p>
+
+  <pre><code>@Transformer(inputChannel = "in", outputChannel = "out")
+public String upper(String payload) {
+    return payload.toUpperCase();
+}</code></pre>
+
+  <p>The method can accept <code>@Header</code> and <code>@Headers</code> parameters to access message headers. The return value becomes the new payload. Because the method is on a plain POJO (not a <code>@Bean</code>), the annotation is processed by a <code>TransformerAnnotationPostProcessor</code> that wraps the method in a <code>TransformerFactoryBean</code>.</p>
+
+  <h2>2. Built-in transformers</h2>
+
+  <p>Spring Integration ships with several ready-to-use transformers <a href="https://docs.spring.io/spring-integration/reference/transformer.html#_common_transformers" target="_blank">[ref]</a>:</p>
+
+  <ul>
+    <li><code>ObjectToStringTransformer</code> — calls <code>toString()</code> on the payload</li>
+    <li><code>ObjectToMapTransformer</code> — converts a Java object to a <code>Map&lt;String, Object&gt;</code></li>
+    <li><code>MapToObjectTransformer</code> — converts a <code>Map</code> back to an object</li>
+    <li><code>JsonToObjectTransformer</code> / <code>ObjectToJsonTransformer</code> — JSON marshalling (needs jackson-databind on classpath)</li>
+    <li><code>StreamTransformer</code> — converts <code>InputStream</code> to <code>byte[]</code> or <code>String</code></li>
+    <li><code>FileToStringTransformer</code> / <code>FileToByteArrayTransformer</code></li>
+    <li><code>SyslogToMapTransformer</code> — parses syslog messages</li>
+  </ul>
+
+  <p>These are configured as <code>@Bean</code> methods with <code>@Transformer</code> annotation, or via the DSL's <code>Transformers</code> utility class:</p>
+
+  <pre><code>@Bean
+@Transformer(inputChannel = "in", outputChannel = "out")
+public ObjectToStringTransformer toStringTransformer() {
+    return new ObjectToStringTransformer();
+}</code></pre>
+
+  <h2>3. SpEL expression transformer</h2>
+
+  <p>The DSL and XML support transformers defined as SpEL expressions <a href="https://docs.spring.io/spring-integration/reference/transformer.html#_expression_based_transformers" target="_blank">[ref]</a>:</p>
+
+  <pre><code>@Bean
+public IntegrationFlow spelFlow() {
+    return IntegrationFlow.from("in")
+            .transform("payload.toUpperCase() + ' via SpEL'")
+            .channel("out")
+            .get();
+}</code></pre>
+
+  <p>You can also use <code>.transform(expression, Class)</code> to specify a target type, or <code>.transform(GenericTransformer)</code> for a lambda. The expression can access <code>payload</code>, <code>headers</code>, and any beans in the application context.</p>
+
+  <h2>4. JSON transformers</h2>
+
+  <p>JSON transformation is particularly common in microservice integrations. The <code>ObjectToJsonTransformer</code> serializes a Java object to a JSON string (or <code>byte[]</code>), and <code>JsonToObjectTransformer</code> deserializes it back <a href="https://docs.spring.io/spring-integration/reference/transformer.html#json-transformers" target="_blank">[ref]</a>.</p>
+
+  <pre><code>@Bean
+public IntegrationFlow jsonRoundTrip() {
+    return IntegrationFlow.from("in")
+            .transform(Transformers.toJson())
+            .transform(Transformers.fromJson(Person.class))
+            .channel("out")
+            .get();
+}</code></pre>
+
+  <p>The <code>Transformers</code> utility class (in <code>org.springframework.integration.dsl</code>) provides static factory methods for all built-in transformers in a DSL-friendly form.</p>
+
+  <h2>5. Header filter</h2>
+
+  <p>The header filter is a special transformer that removes specified headers from the message <a href="https://docs.spring.io/spring-integration/reference/transformer.html#header-filter" target="_blank">[ref]</a>:</p>
+
+  <pre><code>@Bean
+public IntegrationFlow filterFlow() {
+    return IntegrationFlow.from("in")
+            .headerFilter("sensitive-header-name")
+            .channel("out")
+            .get();
+}</code></pre>
+
+  <p>This is useful before sending messages to external systems or untrusted consumers, ensuring sensitive headers (credentials, internal routing info) are stripped.</p>
+
+  <h2>Run the sandbox</h2>
+
+  <pre><code>cd topics/spring-integration/sandbox
+./mvnw spring-boot:run -Dspring-boot.run.profiles=lesson0013</code></pre>
+
+  <table>
+    <thead><tr><th>Section</th><th>What it demonstrates</th><th>Expected output</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>@Transformer</code> annotation — POJO method</td><td><code>[@Transformer] output: HELLO</code></td></tr>
+      <tr><td>2</td><td><code>ObjectToStringTransformer</code> — built-in</td><td><code>[toString] output: 12345 (type: String)</code></td></tr>
+      <tr><td>3</td><td>SpEL expression transformer</td><td><code>[spel] output: TRANSFORM ME via SpEL</code></td></tr>
+      <tr><td>4</td><td>JSON round-trip (object → JSON → object)</td><td><code>[json-raw] {"name":"Alice","age":30}</code> then <code>[json-out] Person(name=Alice, age=30)</code></td></tr>
+      <tr><td>5</td><td>Header filter — strips <code>sensitive</code> header</td><td><code>[header-filter] payload: secret, headers: {public=safe, ...}</code> (no <code>sensitive</code> key)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Key takeaways</h2>
+
+  <ul>
+    <li><strong>Transformer</strong> is an endpoint that modifies a message's payload, headers, or both.</li>
+    <li><strong><code>requiresReply</code> is always <code>true</code></strong> — a transformer must not return <code>null</code>. Doing so throws <code>MessageTransformationException</code>.</li>
+    <li><strong><code>@Transformer</code> annotation</strong> works on a plain POJO method (not a <code>@Bean</code> method, unless returning a transformer instance). The method's return value becomes the new payload.</li>
+    <li><strong>Built-in transformers</strong> cover common conversions: Object-to-String, JSON, Map, Stream, File, Syslog.</li>
+    <li><strong>SpEL expression transformers</strong> are defined inline in the DSL with <code>.transform("expression")</code>.</li>
+    <li><strong>JSON transformers</strong> need <code>jackson-databind</code> on the classpath.</li>
+    <li><strong>Header filter</strong> strips named headers — useful for security/privacy before external dispatch.</li>
+  </ul>
+
+  <h2>Primary sources</h2>
+
+  <ul>
+    <li><a href="https://docs.spring.io/spring-integration/reference/transformer.html" target="_blank">Transformer reference</a></li>
+  </ul>
+
+  <!-- ── Assessment ──────────────────────────────────────────────────── -->
+
+  <div class="assessment">
+
+    <h2>Action / Assessment</h2>
+    <p><em>Test your understanding of the transformer endpoint.</em></p>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the primary purpose of a transformer endpoint?</p>
+      <ul class="quiz-options">
+        <li>To forward messages unchanged between channels</li>
+        <li data-correct="true">To modify a message's payload, headers, or both</li>
+        <li>To consume messages from an external system</li>
+        <li>To schedule message delivery</li>
+      </ul>
+      <p class="quiz-explain">A transformer converts a message in flight — changing its payload type, structure, or headers.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What happens if a @Transformer method returns null?</p>
+      <ul class="quiz-options">
+        <li>The message is silently discarded</li>
+        <li>The framework logs a warning and continues</li>
+        <li data-correct="true">A MessageTransformationException is thrown</li>
+        <li>The message is sent to the error channel</li>
+      </ul>
+      <p class="quiz-explain">Because requiresReply is always true for transformers, returning null causes a MessageTransformationException. Use @ServiceActivator instead if you need a conditional path that may return nothing.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which of these is a valid way to configure a transformer?</p>
+      <ul class="quiz-options">
+        <li>@Transformer on a POJO method</li>
+        <li>@Bean + @Transformer on a transformer instance</li>
+        <li>DSL .transform() step</li>
+        <li data-correct="true">All of the above</li>
+      </ul>
+      <p class="quiz-explain">Transformers can be configured via @Transformer annotation on a POJO method, @Bean + @Transformer on a transformer instance, or the DSL .transform() step.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Where is the Transformers utility class located?</p>
+      <ul class="quiz-options">
+        <li>org.springframework.integration.transformer.support</li>
+        <li>org.springframework.integration.config</li>
+        <li data-correct="true">org.springframework.integration.dsl</li>
+        <li>org.springframework.integration.transformer</li>
+      </ul>
+      <p class="quiz-explain">Transformers (note the plural) is in org.springframework.integration.dsl, providing static factory methods for common transformers like toJson(), fromJson(), etc.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What does a header filter transformer do?</p>
+      <ul class="quiz-options">
+        <li>Filters messages based on header values</li>
+        <li data-correct="true">Removes named headers from the message</li>
+        <li>Validates required headers exist</li>
+        <li>Copies headers to a separate channel</li>
+      </ul>
+      <p class="quiz-explain">The header filter removes specified headers by name, useful for stripping sensitive or internal headers before forwarding to external systems.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which dependency must be on the classpath for JSON transformers to work?</p>
+      <ul class="quiz-options">
+        <li>gson</li>
+        <li data-correct="true">jackson-databind</li>
+        <li>json-path</li>
+        <li>json-simple</li>
+      </ul>
+      <p class="quiz-explain">ObjectToJsonTransformer and JsonToObjectTransformer require jackson-databind in the classpath.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the syntax for a SpEL expression transformer in the DSL?</p>
+      <ul class="quiz-options">
+        <li>.spel("expression")</li>
+        <li>.expression("payload")</li>
+        <li data-correct="true">.transform("payload.toUpperCase()")</li>
+        <li>.convert("expression")</li>
+      </ul>
+      <p class="quiz-explain">The .transform() step accepts a SpEL expression string as payload transformation logic.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">How does a transformer differ from a channel adapter?</p>
+      <ul class="quiz-options">
+        <li>A transformer only sends; an adapter only receives</li>
+        <li>A transformer connects to external systems</li>
+        <li data-correct="true">A transformer modifies messages in flight; an adapter connects to an external system</li>
+        <li>They are identical</li>
+      </ul>
+      <p class="quiz-explain">A channel adapter connects an integration flow to an external system (file, JMS, Kafka, etc.). A transformer modifies the message content within the flow.</p>
+    </div>
+
+    <p><strong>Written recall (say it out loud):</strong> List three built-in transformers, explain the difference between @Transformer on a POJO method vs a @Bean method, and describe when you'd use a header filter.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <a href="0012-messaging-bridge.html">← Previous: Messaging Bridge</a>
+    <a href="0014-content-enricher.html">Next lesson → Content Enricher</a>
+  </div>
+
+  <div class="reminder">
+    <strong>Reminder:</strong> I'm your teacher for this track. If any of this is fuzzy, ask a followup in chat before moving to Lesson 0014.
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>

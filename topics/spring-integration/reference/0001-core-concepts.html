@@ -138,6 +138,13 @@ public String handle(@Payload String p, @Header("locale") String locale) { ... }
       <tr><td><code>@BridgeFrom</code></td><td>Annotation on the <em>target</em> channel bean that creates a bridge from a named source channel with a poller.</td></tr>
       <tr><td><code>@BridgeTo</code></td><td>Annotation on the <em>source</em> channel bean that creates a bridge to a named target channel with a poller.</td></tr>
       <tr><td><code>BridgeHandler</code></td><td><code>MessageHandler</code> implementation that receives a message and sends it to an output channel — the core of the bridge endpoint.</td></tr>
+      <tr><td><strong>Transformer</strong></td><td>Message endpoint that modifies payload, headers, or both — <code>requiresReply</code> is always <code>true</code>; returning <code>null</code> throws <code>MessageTransformationException</code>.</td></tr>
+      <tr><td><code>@Transformer</code></td><td>Annotation on a POJO method (or on a <code>@Bean</code> returning a transformer instance) that marks it as a transformer endpoint.</td></tr>
+      <tr><td><strong>Header Filter</strong></td><td>Transformer that removes specified headers from a message — useful before forwarding to external/untrusted consumers.</td></tr>
+      <tr><td><code>ObjectToStringTransformer</code></td><td>Built-in transformer that calls <code>toString()</code> on the message payload.</td></tr>
+      <tr><td><code>ObjectToJsonTransformer</code></td><td>Built-in transformer that serializes a Java object to JSON (requires <code>jackson-databind</code>).</td></tr>
+      <tr><td><code>JsonToObjectTransformer</code></td><td>Built-in transformer that deserializes JSON to a Java object (requires <code>jackson-databind</code>).</td></tr>
+      <tr><td><code>Transformers</code></td><td>DSL utility class (<code>org.springframework.integration.dsl</code>) with static factory methods for common transformers.</td></tr>
     </tbody>
   </table>
 
