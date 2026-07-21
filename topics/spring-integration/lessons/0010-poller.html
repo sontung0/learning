@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0010 • The Poller</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0010</span>
+      <span>Phase 3 • Endpoints &amp; Polling</span>
+      <span>~25 min</span>
+    </div>
+    <h1>The Poller</h1>
+    <p><em>How Spring Integration bridges the gap between pollable channels and message-driven endpoints.</em></p>
+  </div>
+
+  <h2>Why this lesson exists</h2>
+
+  <p>Non-blocking, message-driven processing works naturally with <code>SubscribableChannel</code> — the framework dispatches messages to handlers as they arrive. But <code>PollableChannel</code> (<code>QueueChannel</code>) introduces a problem: <strong>who pulls messages out of the queue and when?</strong></p>
+
+  <p>The <strong>Poller</strong> is Spring Integration's answer. It's a scheduling component that periodically invokes a <code>PollingConsumer</code> endpoint, which checks a pollable channel for new messages and hands them to the message handler. Without a poller, a <code>QueueChannel</code> just accumulates messages in memory — nothing consumes them <a href="https://docs.spring.io/spring-integration/reference/polling-consumer.html" target="_blank">[ref]</a>.</p>
+
+  <div class="callout primary">
+    <strong>Mission tie-in:</strong> The Poller is the bridge between the two message consumption models — subscribable (push) and pollable (pull). Understanding the poller unlocks <code>QueueChannel</code>, <code>JdbcChannel</code>, file adapters, and any source that produces messages on demand rather than on arrival.
+  </div>
+
+  <h2>1. The PollingConsumer</h2>
+
+  <p>A <code>PollingConsumer</code> is an endpoint that <strong>polls</strong> an input channel rather than being subscribed to it. It wraps a message handler the same way an <code>EventDrivenConsumer</code> does — the difference is how it receives messages:</p>
+
+  <table>
+    <thead><tr><th>Endpoint type</th><th>Triggers when</th><th>Used with</th></tr></thead>
+    <tbody>
+      <tr><td><code>EventDrivenConsumer</code></td><td>A message arrives on the channel</td><td><code>SubscribableChannel</code> (push)</td></tr>
+      <tr><td><code>PollingConsumer</code></td><td>The poller task fires</td><td><code>PollableChannel</code> (pull)</td></tr>
+    </tbody>
+  </table>
+
+  <p>You can poll <strong>manually</strong> by calling <code>PollableChannel.receive(timeout)</code> directly in your code — a blocking call that returns the next message (or <code>null</code> on timeout). But the idiomatic approach is to let the framework handle it with a <code>@Poller</code> annotation.</p>
+
+  <pre><code>// Manual polling (low-level)
+QueueChannel channel = new QueueChannel(10);
+channel.send(new GenericMessage&lt;&gt;("hello"));
+Message&lt;?&gt; msg = channel.receive(1000); // blocks up to 1s
+
+// Framework-driven polling (idiomatic)
+@ServiceActivator(inputChannel = "queueChannel",
+    poller = @Poller(fixedDelay = "500"))
+public void handle(Message&lt;?&gt; msg) { ... }</code></pre>
+
+  <h2>2. Configuring the Poller with <code>@Poller</code></h2>
+
+  <p>The <code>@Poller</code> annotation configures the polling schedule on any endpoint that supports it (<code>@ServiceActivator</code>, <code>@Transformer</code>, <code>@Splitter</code>, etc.). Key attributes <a href="https://docs.spring.io/spring-integration/reference/polling-consumer.html" target="_blank">[ref]</a>:</p>
+
+  <table>
+    <thead><tr><th>Attribute</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>fixedDelay</code></td><td>String (ms)</td><td>Delay after <em>completion</em> of the previous poll — the next poll starts this many ms after the last one finished.</td></tr>
+      <tr><td><code>fixedRate</code></td><td>String (ms)</td><td>Interval between <em>start</em> of polls — next poll starts regardless of whether the previous one finished.</td></tr>
+      <tr><td><code>cron</code></td><td>String</td><td>Unix cron expression for time-of-day scheduling.</td></tr>
+      <tr><td><code>maxMessagesPerPoll</code></td><td>String (int)</td><td>Max number of messages to receive per poll cycle. Default is unlimited (<code>Long.MAX_VALUE</code>).</td></tr>
+      <tr><td><code>receiveTimeout</code></td><td>String (ms)</td><td>How long to wait for a message on <code>receive()</code> before the poll returns empty-handed.</td></tr>
+      <tr><td><code>taskExecutor</code></td><td>String</td><td>Bean name of a <code>TaskExecutor</code> for concurrent polling.</td></tr>
+      <tr><td><code>adviceChain</code></td><td>String[]</td><td>Bean names of <code>Advice</code> instances for cross-cutting concerns (retry, circuit breaker, conditional poll).</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout note">
+    <strong>fixedDelay vs fixedRate:</strong> <code>fixedDelay</code> waits for the handler to finish before scheduling the next poll — ideal for rate-limited consumers. <code>fixedRate</code> fires on a fixed schedule regardless of handler duration — use when the schedule must be exact, even if polls overlap.
+  </div>
+
+  <h2>3. Pollable Message Source (<code>MessageSource</code>)</h2>
+
+  <p>Not every source of messages is a channel. Some produce messages when <strong>you ask for them</strong> — files in a directory, rows in a database table, or state transitions. The <code>MessageSource&lt;T&gt;</code> interface wraps this pattern:</p>
+
+  <pre><code>@FunctionalInterface
+public interface MessageSource&lt;T&gt; {
+    Message&lt;T&gt; receive();
+}</code></pre>
+
+  <p>A <code>MessageSource</code> is polled by a <code>SourcePollingChannelAdapter</code> — a special endpoint that does not need an input channel. Instead, it polls the source and forwards each received message to an output channel <a href="https://docs.spring.io/spring-integration/reference/polling-consumer.html#polling-consumer-pollable-messagesource" target="_blank">[ref]</a>.</p>
+
+  <pre><code>@Bean
+public IntegrationFlow sourceFlow() {
+    return IntegrationFlow.from(() ->
+        MessageBuilder.withPayload("item").build(),
+        c -> c.poller(Pollers.fixedDelay(1000)))
+        .handle(System.out::println)
+        .get();
+}</code></pre>
+
+  <p>The contract: <code>receive()</code> returns a <code>Message</code> when available, or <code>null</code> when the source is exhausted. Returning <code>null</code> tells the framework to skip this poll cycle — the poller increments a counter of consecutive idle cycles (used by idle/active notifications). Once a source returns <code>null</code>, the framework will poll again on the next schedule.</p>
+
+  <h2>4. Conditional Pollers &amp; Smart Polling</h2>
+
+  <p>Sometimes you need to skip a poll based on external state or optimize polling when the source is idle. Spring Integration provides several mechanisms <a href="https://docs.spring.io/spring-integration/reference/polling-consumer.html#polling-consumer-conditional-pollers" target="_blank">[ref]</a>:</p>
+
+  <ul>
+    <li><strong><code>PollSkipAdvice</code></strong> — A <code>MethodInterceptor</code> that wraps the poller's <code>receive</code> call. Its <code>shouldSkip()</code> method returns <code>true</code> to skip this poll cycle. Use for conditional polling (e.g., "don't poll on weekends").</li>
+    <li><strong><code>ReceiveMessageAdvice</code></strong> — Extension point for <code>receive()</code> calls. The framework provides <code>SimpleActiveIdleReceiveMessageAdvice</code> (fires callbacks when the source transitions between active and idle states) and <code>CompoundTriggerAdvice</code> (allows an external trigger to fire a poll outside the normal schedule).</li>
+    <li><strong><code>MessageSourceMutator</code></strong> — Transforms the <code>MessageSource</code> itself (sets headers, wraps payload, etc.) before each poll.</li>
+    <li><strong>Trigger interface</strong> — Custom implementations of <code>org.springframework.scheduling.Trigger</code> for arbitrary scheduling logic.</li>
+  </ul>
+
+  <pre><code>// PollSkipAdvice — skip polls on weekends
+public class WeekendSkipAdvice extends PollSkipAdvice {
+    @Override
+    public boolean shouldSkip(Message&lt;?&gt; message, Object... args) {
+        return Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+                in (Calendar.SATURDAY, Calendar.SUNDAY);
+    }
+}
+
+// Attach to a poller:
+@ServiceActivator(inputChannel = "in",
+    poller = @Poller(fixedDelay = "1000", adviceChain = "weekendSkipAdvice"))</code></pre>
+
+  <h2>5. Deferred Acknowledgment</h2>
+
+  <p>A <code>QueueChannel</code> with a poller removes a message from the queue when <code>receive()</code> is called — the message is gone even if the handler fails later. In transactional scenarios you may want to defer the acknowledgment until the handler confirms success <a href="https://docs.spring.io/spring-integration/reference/polling-consumer.html#polling-consumer-deferred-ack" target="_blank">[ref]</a>.</p>
+
+  <p>Spring Integration supports deferred acknowledgment via the transaction synchronization mechanism: the poller can participate in a transaction, and the message is acknowledged only after the transaction commits. If the transaction rolls back, the message is returned to the queue.</p>
+
+  <h2>Run the sandbox</h2>
+
+  <pre><code>cd topics/spring-integration/sandbox
+./mvnw spring-boot:run -Dspring-boot.run.profiles=lesson0010</code></pre>
+
+  <table>
+    <thead><tr><th>Section</th><th>What it demonstrates</th><th>Expected output</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Manual polling with <code>receive(timeout)</code></td><td>First call returns <code>poll-me</code>, second call on empty queue returns <code>null (correct)</code></td></tr>
+      <tr><td>2</td><td>Background <code>PollingConsumer</code> with <code>@Poller(fixedDelay="800", maxMessagesPerPoll="1")</code></td><td><code>bg-msg-1</code>, <code>bg-msg-2</code>, <code>bg-msg-3</code> consumed sequentially on <code>scheduling-1</code> thread ~800ms apart</td></tr>
+      <tr><td>3</td><td><code>MessageSource.receive()</code> ad-hoc polling</td><td><code>src-1</code>, <code>src-2</code>, <code>src-3</code>, then <code>null</code>, <code>null</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Key takeaways</h2>
+
+  <ul>
+    <li><strong>The Poller</strong> is a scheduling component that drives <code>PollingConsumer</code> endpoints — it's what makes <code>QueueChannel</code> useful.</li>
+    <li><strong>Two polling styles:</strong> manual (<code>receive(timeout)</code>) for ad-hoc consumption, framework-driven (<code>@Poller</code>) for idiomatic Spring Integration.</li>
+    <li><strong><code>@Poller</code> attributes:</strong> <code>fixedDelay</code> (delay after completion), <code>fixedRate</code> (interval between starts), <code>cron</code>, <code>maxMessagesPerPoll</code>, <code>receiveTimeout</code>, <code>taskExecutor</code>, <code>adviceChain</code>.</li>
+    <li><strong><code>MessageSource</code></strong> is a pollable producer of messages — doesn't require an input channel. The <code>SourcePollingChannelAdapter</code> bridges it to the messaging flow.</li>
+    <li><strong>Conditional polling</strong> via <code>PollSkipAdvice</code>, <code>ReceiveMessageAdvice</code>, and <code>MessageSourceMutator</code> adapts polling behaviour to external state.</li>
+    <li>When a <code>MessageSource.receive()</code> returns <code>null</code>, the framework records an idle cycle and polls again on the next schedule.</li>
+  </ul>
+
+  <h2>Primary sources</h2>
+
+  <p>Read the official reference:</p>
+  <ul>
+    <li><a href="https://docs.spring.io/spring-integration/reference/polling-consumer.html" target="_blank">Poller — Polling Consumer</a></li>
+    <li><a href="https://docs.spring.io/spring-integration/reference/polling-consumer.html#polling-consumer-pollable-messagesource" target="_blank">Pollable Message Source</a></li>
+    <li><a href="https://docs.spring.io/spring-integration/reference/polling-consumer.html#polling-consumer-conditional-pollers" target="_blank">Conditional Pollers</a></li>
+  </ul>
+
+  <!-- ── Assessment ──────────────────────────────────────────────────── -->
+
+  <div class="assessment">
+
+    <h2>Action / Assessment</h2>
+    <p><em>Test your understanding of the Poller.</em></p>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the primary purpose of a PollingConsumer?</p>
+      <ul class="quiz-options">
+        <li>To transform message payloads</li>
+        <li data-correct="true">To poll a PollableChannel and hand messages to a handler</li>
+        <li>To subscribe to a PublishSubscribeChannel</li>
+        <li>To create new channels</li>
+      </ul>
+      <p class="quiz-explain">A PollingConsumer wraps a message handler and uses a poller to periodically check a PollableChannel for messages.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the difference between fixedDelay and fixedRate in @Poller?</p>
+      <ul class="quiz-options">
+        <li>There is no difference</li>
+        <li data-correct="true">fixedDelay waits for the handler to complete before scheduling the next poll; fixedRate polls on a fixed schedule regardless of handler duration</li>
+        <li>fixedRate is faster than fixedDelay</li>
+        <li>fixedDelay is for cron-based scheduling</li>
+      </ul>
+      <p class="quiz-explain">fixedDelay measures delay from completion of the previous poll. fixedRate measures from start — polls can overlap if the handler runs longer than the interval.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What does PollableChannel.receive(timeout) return when no message arrives within the timeout?</p>
+      <ul class="quiz-options">
+        <li>An error message</li>
+        <li>An empty Optional</li>
+        <li data-correct="true">null</li>
+        <li>false</li>
+      </ul>
+      <p class="quiz-explain">receive(timeout) blocks until a message arrives or the timeout expires, returning null on timeout.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What does the maxMessagesPerPoll attribute control?</p>
+      <ul class="quiz-options">
+        <li>The maximum number of poller threads</li>
+        <li data-correct="true">How many messages the poller can retrieve in a single poll cycle</li>
+        <li>The maximum queue capacity</li>
+        <li>The maximum message size</li>
+      </ul>
+      <p class="quiz-explain">maxMessagesPerPoll limits how many messages are received per poll. Default is unlimited (Long.MAX_VALUE). Setting it to 1 drains one message per poll cycle.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What does a MessageSource.receive() return when the source is exhausted?</p>
+      <ul class="quiz-options">
+        <li>An empty Optional</li>
+        <li data-correct="true">null</li>
+        <li>A message with an error payload</li>
+        <li>void</li>
+      </ul>
+      <p class="quiz-explain">Returning null signals that no message is available this cycle. The framework records an idle cycle and polls again on schedule.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which endpoint type bridges a MessageSource to the messaging flow?</p>
+      <ul class="quiz-options">
+        <li>EventDrivenConsumer</li>
+        <li data-correct="true">SourcePollingChannelAdapter</li>
+        <li>PollingConsumer</li>
+        <li>ChannelAdapter</li>
+      </ul>
+      <p class="quiz-explain">SourcePollingChannelAdapter polls a MessageSource and forwards messages to an output channel. It needs no input channel.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is PollSkipAdvice used for?</p>
+      <ul class="quiz-options">
+        <li>To skip processing when a message is null</li>
+        <li data-correct="true">To conditionally skip a poll cycle based on external state</li>
+        <li>To skip sending messages to error channels</li>
+        <li>To reduce logging verbosity</li>
+      </ul>
+      <p class="quiz-explain">PollSkipAdvice wraps the poller's receive call. Its shouldSkip() method returns true to skip this poll cycle — e.g., "don't poll on weekends".</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">In deferred acknowledgment, when is the message acknowledged as consumed?</p>
+      <ul class="quiz-options">
+        <li>Immediately when receive() returns</li>
+        <li data-correct="true">After the transaction commits</li>
+        <li>When the handler logs completion</li>
+        <li>On the next poll cycle</li>
+      </ul>
+      <p class="quiz-explain">Deferred acknowledgment uses transaction synchronization: the message is acknowledged only after the enclosing transaction commits. If the transaction rolls back, the message returns to the queue.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which advice provides idle/active state transitions for a polled source?</p>
+      <ul class="quiz-options">
+        <li>PollSkipAdvice</li>
+        <li data-correct="true">SimpleActiveIdleReceiveMessageAdvice</li>
+        <li>CompoundTriggerAdvice</li>
+        <li>MessageSourceMutator</li>
+      </ul>
+      <p class="quiz-explain">SimpleActiveIdleReceiveMessageAdvice fires callbacks when the source transitions between active (receiving messages) and idle (receiving null) states.</p>
+    </div>
+
+    <p><strong>Written recall (say it out loud):</strong> Walk through the lifecycle of a single poll: what triggers it, how the PollingConsumer interacts with the PollableChannel, what happens when the handler runs, and how the next poll is scheduled. Then explain when you'd use a MessageSource instead of a channel.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <a href="0009-special-channels.html">← Previous: Special Channels</a>
+    <a href="0011-channel-adapter.html">Next lesson → Channel Adapter</a>
+  </div>
+
+  <div class="reminder">
+    <strong>Reminder:</strong> I'm your teacher for this track. If any of this is fuzzy, ask a followup in chat before moving to Lesson 0011.
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>

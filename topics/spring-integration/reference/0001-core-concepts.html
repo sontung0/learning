@@ -122,6 +122,14 @@ public String handle(@Payload String p, @Header("locale") String locale) { ... }
       <tr><td><code>ErrorMessage</code></td><td>A <code>Message</code> whose payload is a <code>MessagingException</code> or other <code>Throwable</code>, published by the framework when an async handler fails.</td></tr>
       <tr><td><code>ErrorMessageExceptionTypeRouter</code></td><td>Router subscribed to <code>errorChannel</code> that dispatches <code>ErrorMessage</code> instances to different channels based on exception type.</td></tr>
       <tr><td><code>requireSubscribers</code></td><td>Property on <code>errorChannel</code> (default <code>true</code> since 5.4.3) that throws <code>MessageDispatchingException</code> if no subscriber is registered.</td></tr>
+      <tr><td><strong>Poller</strong></td><td>Scheduling component that drives <code>PollingConsumer</code> endpoints — periodically invokes <code>receive()</code> on a <code>PollableChannel</code>.</td></tr>
+      <tr><td><code>@Poller</code></td><td>Annotation on endpoint annotations (<code>@ServiceActivator</code>, <code>@Transformer</code>, etc.) configuring <code>fixedDelay</code>, <code>fixedRate</code>, <code>cron</code>, <code>maxMessagesPerPoll</code>, <code>receiveTimeout</code>, <code>taskExecutor</code>, <code>adviceChain</code>.</td></tr>
+      <tr><td><strong>PollingConsumer</strong></td><td>Endpoint that polls a <code>PollableChannel</code> on a schedule — contrast with <code>EventDrivenConsumer</code> which is message-driven.</td></tr>
+      <tr><td><code>MessageSource&lt;T&gt;</code></td><td>Functional interface with a single <code>receive()</code> method — produces a <code>Message</code> on demand, returns <code>null</code> when exhausted.</td></tr>
+      <tr><td><strong>SourcePollingChannelAdapter</strong></td><td>Endpoint that polls a <code>MessageSource</code> and forwards messages to an output channel — no input channel required.</td></tr>
+      <tr><td><code>PollSkipAdvice</code></td><td><code>MethodInterceptor</code> wrapping the poller's <code>receive</code> call; <code>shouldSkip()</code> returns <code>true</code> to skip this poll cycle.</td></tr>
+      <tr><td><code>ReceiveMessageAdvice</code></td><td>Extension point for <code>receive()</code> calls; built-in implementations include <code>SimpleActiveIdleReceiveMessageAdvice</code> and <code>CompoundTriggerAdvice</code>.</td></tr>
+      <tr><td><code>SimpleActiveIdleReceiveMessageAdvice</code></td><td>Fires callbacks when the polled source transitions between active (receiving messages) and idle (returning <code>null</code>) states.</td></tr>
     </tbody>
   </table>
 
