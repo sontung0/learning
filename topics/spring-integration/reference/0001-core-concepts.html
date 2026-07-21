@@ -36,11 +36,12 @@
     </tbody>
   </table>
 
-  <h2>The seven endpoint types (Overview list)</h2>
+  <h2>The eight endpoint types (Overview list)</h2>
   <table>
     <thead><tr><th>Endpoint</th><th>Job</th></tr></thead>
     <tbody>
       <tr><td>Transformer</td><td>Convert payload/structure or modify headers.</td></tr>
+      <tr><td>Content Enricher</td><td>Augment a message with data from an external source.</td></tr>
       <tr><td>Filter</td><td>Boolean test — pass the message on, or drop/throw.</td></tr>
       <tr><td>Router</td><td>Decide which channel(s) receive the message next.</td></tr>
       <tr><td>Splitter</td><td>One message in → many messages out.</td></tr>
@@ -145,6 +146,11 @@ public String handle(@Payload String p, @Header("locale") String locale) { ... }
       <tr><td><code>ObjectToJsonTransformer</code></td><td>Built-in transformer that serializes a Java object to JSON (requires <code>jackson-databind</code>).</td></tr>
       <tr><td><code>JsonToObjectTransformer</code></td><td>Built-in transformer that deserializes JSON to a Java object (requires <code>jackson-databind</code>).</td></tr>
       <tr><td><code>Transformers</code></td><td>DSL utility class (<code>org.springframework.integration.dsl</code>) with static factory methods for common transformers.</td></tr>
+      <tr><td><strong>Header Enricher</strong></td><td>Endpoint that adds or modifies message headers via static values (<code>header()</code>) or SpEL expressions (<code>headerExpression()</code>). Configured via <code>HeaderEnricher</code> class or DSL <code>.enrichHeaders()</code> step.</td></tr>
+      <tr><td><strong>Content Enricher</strong></td><td>Endpoint that augments a message payload by fetching data from an external source (request channel) and merging it back onto the original payload using property expressions. Configured via DSL <code>.enrich()</code> step.</td></tr>
+      <tr><td><code>EnricherSpec</code></td><td>DSL spec for <code>.enrich()</code> — provides <code>requestChannel()</code>, <code>requestPayload()</code>, <code>propertyExpression()</code>, <code>property()</code>, <code>requestSubFlow()</code>, <code>replyChannel()</code>, <code>errorChannel()</code>, <code>requestTimeout()</code>, <code>replyTimeout()</code>, <code>shouldClonePayload()</code>.</td></tr>
+      <tr><td><code>HeaderEnricherSpec</code></td><td>DSL spec for <code>.enrichHeaders()</code> — provides <code>header(key, value)</code> for static values and <code>headerExpression(key, expr)</code> for SpEL expressions.</td></tr>
+      <tr><td><code>HeaderValueMessageProcessor</code></td><td>Strategy interface for producing header values — implementations include <code>StaticHeaderValueMessageProcessor</code> (literal) and <code>ExpressionEvaluatingHeaderValueMessageProcessor</code> (SpEL).</td></tr>
     </tbody>
   </table>
 

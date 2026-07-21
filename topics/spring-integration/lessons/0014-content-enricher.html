@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0014 • Content Enricher</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0014</span>
+      <span>Phase 3 • Endpoints &amp; Polling</span>
+      <span>~20 min</span>
+    </div>
+    <h1>Content Enricher</h1>
+    <p><em>A message endpoint that adds data to a message by consulting an external source — filling in the gaps when a message carries only a partial payload.</em></p>
+  </div>
+
+  <h2>Why this lesson exists</h2>
+
+  <p>A <strong>Content Enricher</strong> is a Message Endpoint that augments an incoming message with additional data obtained from an external source (a database, REST service, or another flow). This is the Enterprise Integration Pattern for the common scenario where a message contains only a key or ID, and the full payload must be fetched before processing can continue <a href="https://docs.spring.io/spring-integration/reference/content-enrichment.html" target="_blank">[ref]</a>.</p>
+
+  <p>Spring Integration provides two enricher variants:</p>
+
+  <ul>
+    <li><strong>Header Enricher</strong> — adds or modifies message headers via static values or SpEL expressions.</li>
+    <li><strong>Payload Enricher</strong> (<code>ContentEnricher</code>) — enriches the message payload by sending a request to a downstream service and merging the response back into the original payload.</li>
+  </ul>
+
+  <div class="callout primary">
+    <strong>Key distinction:</strong> The Header Enricher <em>adds headers</em> to the existing message. The Payload Enricher <em>replaces specific properties</em> on the existing payload object using values from a reply message. The original payload stays as the root object for property mappings.
+  </div>
+
+  <h2>1. Header Enricher — Java configuration</h2>
+
+  <p>The <code>HeaderEnricher</code> class accepts a <code>Map&lt;String, HeaderValueMessageProcessor&lt;?&gt;&gt;</code> where each entry defines a header name and its value processor <a href="https://docs.spring.io/spring-integration/reference/content-enrichment.html#header-enricher" target="_blank">[ref]</a>:</p>
+
+  <pre><code>Map&lt;String, HeaderValueMessageProcessor&lt;?&gt;&gt; headers = new HashMap&lt;&gt;();
+headers.put("source", new StaticHeaderValueMessageProcessor&lt;&gt;("enricher-java"));
+headers.put("length",
+        new ExpressionEvaluatingHeaderValueMessageProcessor&lt;&gt;(
+                "payload.length()", Integer.class));
+
+HeaderEnricher enricher = new HeaderEnricher(headers);
+enricher.setDefaultOverwrite(false);  // don't overwrite existing headers</code></pre>
+
+  <p>The <code>setDefaultOverwrite(false)</code> flag means existing headers with the same name are preserved — the enricher only adds missing headers. You can override per-header with specific <code>HeaderValueMessageProcessor</code> instances that have their own overwrite flag.</p>
+
+  <h2>2. Header Enricher — DSL</h2>
+
+  <p>The DSL provides a concise <code>.enrichHeaders()</code> step that accepts a <code>Consumer&lt;HeaderEnricherSpec&gt;</code> <a href="https://docs.spring.io/spring-integration/reference/content-enrichment.html#header-enricher-dsl" target="_blank">[ref]</a>:</p>
+
+  <pre><code>@Bean
+public IntegrationFlow headerDslFlow() {
+    return IntegrationFlow.from("in")
+            .enrichHeaders(h -> h
+                    .header("dslSource", "enricher-dsl")
+                    .headerExpression("upperCase", "payload.toUpperCase()")
+            )
+            .channel("out")
+            .get();
+}</code></pre>
+
+  <p>The <code>header()</code> method sets a static literal value, while <code>headerExpression()</code> evaluates a SpEL expression against the message.</p>
+
+  <h2>3. Payload Enricher with request channel</h2>
+
+  <p>The Payload Enricher (<code>ContentEnricher</code>) is configured via the DSL's <code>.enrich()</code> step <a href="https://docs.spring.io/spring-integration/reference/content-enrichment.html#payload-enricher-dsl" target="_blank">[ref]</a>:</p>
+
+  <pre><code>@Bean
+public IntegrationFlow enricherFlow() {
+    return IntegrationFlow.from("in")
+            .enrich(e -> e
+                    .requestChannel("lookupRequest")
+                    .requestPayload(p -> ((Ticket) p.getPayload()).getId())
+                    .propertyExpression("assignee", "payload.assignee")
+                    .propertyExpression("status", "payload.status")
+            )
+            .channel("out")
+            .get();
+}</code></pre>
+
+  <p>The enricher works in three phases:</p>
+
+  <ol>
+    <li><strong>Extract</strong> — <code>requestPayload()</code> derives the request message payload from the original message (e.g., extracting the ticket ID).</li>
+    <li><strong>Fetch</strong> — The request is sent to <code>requestChannel</code>, which invokes a downstream service that returns a reply.</li>
+    <li><strong>Merge</strong> — <code>propertyExpression()</code> maps values from the reply (accessed via <code>payload.*</code>) onto the original payload object using JavaBean property setters.</li>
+  </ol>
+
+  <p>The original payload object <strong>must have JavaBean setters</strong> for each property being enriched. Records (Java <code>record</code>) don't work because their fields are final — use a regular POJO with setters instead.</p>
+
+  <h2>4. Static payload enrichment (no request channel)</h2>
+
+  <p>If you omit <code>requestChannel</code>, the enricher fills properties from SpEL expressions without making an external call. This is useful for setting default values:</p>
+
+  <pre><code>@Bean
+public IntegrationFlow staticEnrichFlow() {
+    return IntegrationFlow.from("in")
+            .enrich(e -> e
+                    .propertyExpression("assignee", "'system'")
+                    .property("status", "pending")
+            )
+            .channel("out")
+            .get();
+}</code></pre>
+
+  <p><code>property()</code> sets a literal value, and <code>propertyExpression()</code> evaluates a SpEL expression. The expression context is the <em>reply</em> message — but with no request channel, the expression is evaluated against a null reply, so you typically use literal strings or context beans.</p>
+
+  <h2>5. Key EnricherSpec API</h2>
+
+  <table>
+    <thead><tr><th>Method</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>requestChannel(MessageChannel)</code></td><td>Set the request channel as a bean reference</td></tr>
+      <tr><td><code>requestChannel(String)</code></td><td>Set the request channel by bean name</td></tr>
+      <tr><td><code>requestPayload(Function)</code></td><td>Derive the request payload from the original message</td></tr>
+      <tr><td><code>requestPayloadExpression(String)</code></td><td>Derive the request payload via SpEL</td></tr>
+      <tr><td><code>requestSubFlow(IntegrationFlow)</code></td><td>Define the request handling inline as a sub-flow</td></tr>
+      <tr><td><code>propertyExpression(String, String)</code></td><td>Map a reply property to a payload property via SpEL</td></tr>
+      <tr><td><code>property(String, Object)</code></td><td>Set a literal property value on the payload</td></tr>
+      <tr><td><code>replyChannel(MessageChannel)</code></td><td>Set a custom reply channel</td></tr>
+      <tr><td><code>errorChannel(String)</code></td><td>Error channel for request failures</td></tr>
+      <tr><td><code>requestTimeout(Long)</code></td><td>Timeout waiting for the request handler</td></tr>
+      <tr><td><code>replyTimeout(Long)</code></td><td>Timeout waiting for the reply</td></tr>
+      <tr><td><code>shouldClonePayload(boolean)</code></td><td>Clone the original payload before enrichment</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Run the sandbox</h2>
+
+  <pre><code>cd topics/spring-integration/sandbox
+./mvnw spring-boot:run -Dspring-boot.run.profiles=lesson0014</code></pre>
+
+  <table>
+    <thead><tr><th>Section</th><th>What it demonstrates</th><th>Expected output</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Header Enricher — Java config with <code>HeaderEnricher</code> + <code>.transform()</code></td><td><code>[header-java] payload: hello, source=enricher-java, length=5</code></td></tr>
+      <tr><td>2</td><td>Header Enricher — DSL <code>.enrichHeaders()</code></td><td><code>[header-dsl] … dslSource=enricher-dsl, upperCase=SPRING INTEGRATION</code></td></tr>
+      <tr><td>3</td><td>Payload Enricher — <code>.enrich()</code> with request channel</td><td><code>[payload-req] Ticket(id=42, assignee=Alice, status=open, …)</code></td></tr>
+      <tr><td>4</td><td>Static enrichment — <code>.enrich()</code> without request channel</td><td><code>[static] Ticket(id=99, assignee=system, status=pending, …)</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Key takeaways</h2>
+
+  <ul>
+    <li><strong>Header Enricher</strong> adds headers via static values (<code>header()</code>) or SpEL (<code>headerExpression()</code>).</li>
+    <li><strong>Payload Enricher</strong> (<code>ContentEnricher</code>) fetches data from a request channel and merges it onto the original payload object.</li>
+    <li><strong><code>.enrichHeaders()</code></strong> is the DSL method for header enrichment; <strong><code>.enrich()</code></strong> is for payload enrichment.</li>
+    <li>The enriched payload object <strong>must have JavaBean setters</strong> for each property — Java records won't work.</li>
+    <li><code>setDefaultOverwrite(false)</code> preserves existing headers when using <code>HeaderEnricher</code> directly.</li>
+    <li>The <code>requestPayload()</code> function extracts data from the original message to form the request to the lookup service.</li>
+  </ul>
+
+  <h2>Primary sources</h2>
+
+  <ul>
+    <li><a href="https://docs.spring.io/spring-integration/reference/content-enrichment.html" target="_blank">Content Enricher reference</a></li>
+  </ul>
+
+  <!-- ── Assessment ──────────────────────────────────────────────────── -->
+
+  <div class="assessment">
+
+    <h2>Action / Assessment</h2>
+    <p><em>Test your understanding of the Content Enricher.</em></p>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the primary purpose of a Content Enricher endpoint?</p>
+      <ul class="quiz-options">
+        <li>To transform message payload from one type to another</li>
+        <li data-correct="true">To augment a message with additional data obtained from an external source</li>
+        <li>To filter messages based on content</li>
+        <li>To route messages to different channels</li>
+      </ul>
+      <p class="quiz-explain">The Content Enricher fills in missing data by consulting a database, service, or another flow, then merges the result back onto the original payload.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What does the <code>setDefaultOverwrite(false)</code> flag on HeaderEnricher do?</p>
+      <ul class="quiz-options">
+        <li>Prevents any headers from being added</li>
+        <li data-correct="true">Preserves existing headers — only adds missing ones</li>
+        <li>Clears all existing headers before enrichment</li>
+        <li>Throws an exception if headers already exist</li>
+      </ul>
+      <p class="quiz-explain">When false, existing headers with the same name are not overwritten. The enricher only adds headers that don't already exist on the message.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which DSL method is used for payload enrichment?</p>
+      <ul class="quiz-options">
+        <li>.enrichHeaders()</li>
+        <li data-correct="true">.enrich()</li>
+        <li>.transform()</li>
+        <li>.handle()</li>
+      </ul>
+      <p class="quiz-explain">.enrich() accepts a Consumer&lt;EnricherSpec&gt; for configuring the ContentEnricher. .enrichHeaders() is specifically for header enrichment.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Why must the enriched payload object have JavaBean setters?</p>
+      <ul class="quiz-options">
+        <li>Because the enricher uses reflection to read fields</li>
+        <li data-correct="true">Because the enricher uses property setters to merge values back onto the original payload</li>
+        <li>Because the enricher serializes the payload to XML</li>
+        <li>Because setters are required for SpEL evaluation</li>
+      </ul>
+      <p class="quiz-explain">The ContentEnricher maps reply values onto the original payload via JavaBean setter methods. A Java record's fields are final, so records cannot be used as enriched payloads.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What happens if you omit <code>requestChannel</code> in <code>.enrich()</code>?</p>
+      <ul class="quiz-options">
+        <li>The enricher throws a configuration error</li>
+        <li>The enricher sends the request to a default channel</li>
+        <li data-correct="true">The enricher fills properties from SpEL expressions without making an external call</li>
+        <li>The enricher creates a temporary channel automatically</li>
+      </ul>
+      <p class="quiz-explain">Without a request channel, there's no external lookup. Properties are set from literal values or SpEL expressions, which is useful for assigning default values.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which method derives the request payload from the original message in EnricherSpec?</p>
+      <ul class="quiz-options">
+        <li>.requestPayload(String)</li>
+        <li data-correct="true">.requestPayload(Function&lt;Message&lt;P&gt;, ?&gt;)</li>
+        <li>.requestPayloadExpression(String)</li>
+        <li>Both B and C are valid</li>
+      </ul>
+      <p class="quiz-explain">requestPayload() accepts a Function to extract data from the original message. requestPayloadExpression() does the same via SpEL. Both are valid.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the difference between <code>.header()</code> and <code>.headerExpression()</code> on HeaderEnricherSpec?</p>
+      <ul class="quiz-options">
+        <li>They are identical</li>
+        <li data-correct="true">.header() sets a static literal; .headerExpression() evaluates a SpEL expression</li>
+        <li>.header() sets the reply channel; .headerExpression() sets the request channel</li>
+        <li>.header() is for strings only; .headerExpression() is for numbers</li>
+      </ul>
+      <p class="quiz-explain">.header(key, value) sets a literal value directly. .headerExpression(key, expr) evaluates a SpEL expression against the message context to compute the value dynamically.</p>
+    </div>
+
+    <p><strong>Written recall (say it out loud):</strong> Explain the three phases of a Payload Enricher (extract, fetch, merge). List the EnricherSpec methods for configuring request channel, request payload, and property mappings.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <a href="0013-transformer.html">← Previous: Transformer</a>
+    <a href="0015-claim-check.html">Next lesson → Claim Check</a>
+  </div>
+
+  <div class="reminder">
+    <strong>Reminder:</strong> I'm your teacher for this track. If any of this is fuzzy, ask a followup in chat before moving to Lesson 0015.
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>
