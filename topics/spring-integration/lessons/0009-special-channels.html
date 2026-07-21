@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0009 • Special Channels</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0009</span>
+      <span>Phase 2 • Core Messaging</span>
+      <span>~20 min</span>
+    </div>
+    <h1>Special Channels</h1>
+    <p><em>The framework-defined infrastructure channels: nullChannel, errorChannel, and the wire tap pattern for cross-cutting observation.</em></p>
+  </div>
+
+  <h2>Why this lesson exists</h2>
+
+  <p>Spring Integration pre-defines a few special channel beans in every application context. They handle cross-cutting concerns — discarding unwanted replies, routing async errors, and intercepting messages without touching your flow code <a href="https://docs.spring.io/spring-integration/reference/channel/special-channels.html" target="_blank">[ref]</a>.</p>
+
+  <ul>
+    <li><strong><code>nullChannel</code></strong> — a sink that silently discards messages (like <code>/dev/null</code>).</li>
+    <li><strong><code>errorChannel</code></strong> — the global channel for async error publication.</li>
+    <li><strong>Wire tap</strong> — a <code>ChannelInterceptor</code> pattern for observing messages in transit.</li>
+  </ul>
+
+  <div class="callout primary">
+    <strong>Mission tie-in:</strong> Every Spring Integration application has these channels whether you know about them or not. Understanding them prevents confusion — "why is that message ending up in error logging?" or "I don't care about that reply, where do I send it?".
+  </div>
+
+  <h2>1. nullChannel (<code>/dev/null</code>)</h2>
+
+  <p>The <code>nullChannel</code> is a bean of type <code>NullChannel</code> that acts as a message sink <a href="https://docs.spring.io/spring-integration/reference/channel/special-channels.html" target="_blank">[ref]</a>. Sending a message to it:</p>
+  <ul>
+    <li>Logs the message at <code>DEBUG</code> level.</li>
+    <li>Returns <code>true</code> immediately (the send is always "successful").</li>
+    <li>Discards the payload.</li>
+  </ul>
+
+  <p>You use it any time a component needs an output channel but you don't care about the result:</p>
+
+  <pre><code>// When a gateway or transformer requires a reply channel
+// but you want to discard the reply:
+@ServiceActivator(inputChannel = "in", outputChannel = "nullChannel")
+public String handle(String payload) { ... }
+
+// Or programmatically:
+nullChannel.send(new GenericMessage&lt;&gt;("discard-me"));</code></pre>
+
+  <p>If the payload is a reactive <code>Publisher</code>, the <code>nullChannel</code> subscribes to it immediately to initiate stream processing (though the data is discarded). Errors from that subscription are logged at <code>WARN</code> level.</p>
+
+  <h2>2. errorChannel</h2>
+
+  <p>When a message handler runs on a <strong>different thread</strong> than the sender (via <code>ExecutorChannel</code>, <code>QueueChannel</code> with a poller, or any <code>TaskExecutor</code>), exceptions cannot propagate back to the caller. Spring Integration instead publishes them as an <code>ErrorMessage</code> — wrapping the exception as payload — to the <strong>error channel</strong> <a href="https://docs.spring.io/spring-integration/reference/error-handling.html" target="_blank">[ref]</a>.</p>
+
+  <p>Resolution order:</p>
+  <ol>
+    <li>If the original <code>Message</code> has an <code>errorChannel</code> <strong>header</strong>, the <code>ErrorMessage</code> is sent there.</li>
+    <li>Otherwise, it's sent to the global bean named <code>"errorChannel"</code>.</li>
+  </ol>
+
+  <p>By default, <code>errorChannel</code> is a <code>PublishSubscribeChannel</code> with a single subscriber: a <code>LoggingHandler</code> at <code>ERROR</code> level (with order <code>Ordered.LOWEST_PRECEDENCE - 100</code>). You can subscribe additional handlers:</p>
+
+  <pre><code>@Component
+public class MyErrorHandler {
+    @ServiceActivator(inputChannel = "errorChannel")
+    public void handleError(ErrorMessage error) {
+        MessagingException ex = (MessagingException) error.getPayload();
+        Message&lt;?&gt; failed = ex.getFailedMessage();
+        log.warn("Error processing: {} - {}", failed, ex.getMessage());
+    }
+}</code></pre>
+
+  <p>Since 5.4.3, the default error channel has <code>requireSubscribers = true</code> — if there are no subscribers, a <code>MessageDispatchingException</code> is thrown. This prevents silent message loss. You can override this with the global property <code>spring.integration.channels.error.requireSubscribers=false</code>.</p>
+
+  <p>For more sophisticated routing, use the <code>ErrorMessageExceptionTypeRouter</code> to route errors to different channels based on exception type:</p>
+
+  <pre><code>@Bean
+public IntegrationFlow errorFlow() {
+    return f -> f
+        .routeByException(r -> r
+            .channelMapping(IllegalArgumentException.class, "validationErrors")
+            .channelMapping(NullPointerException.class, "npeErrors")
+            .defaultOutputChannel("defaultErrorChannel"));
+}</code></pre>
+
+  <h3>When does messaging-based error handling apply?</h3>
+  <p>Only when the handler runs on a <strong>different thread</strong> than the sender. With <code>DirectChannel</code> (same thread), exceptions propagate directly — no <code>ErrorMessage</code> is created. This is identical to normal Java exception propagation.</p>
+
+  <h2>3. Wire Tap</h2>
+
+  <p>The wire tap pattern adds a <strong>read-only observer</strong> to a channel: every message is copied to a secondary channel for monitoring, auditing, or debugging, without affecting the primary flow <a href="https://docs.spring.io/spring-integration/reference/channel/configuration.html#channel-configuration-wiretap" target="_blank">[ref]</a>.</p>
+
+  <p>You can apply a wire tap via a <code>ChannelInterceptor</code> with <code>@GlobalChannelInterceptor</code>:</p>
+
+  <pre><code>@Bean
+@GlobalChannelInterceptor(patterns = "*Channel")
+public ChannelInterceptor wireTap() {
+    return new ChannelInterceptor() {
+        @Override
+        public Message&lt;?&gt; preSend(Message&lt;?&gt; message, MessageChannel channel) {
+            log.info("[wire-tap] channel={}, payload={}", channel, message.getPayload());
+            return message;   // return the message unchanged
+        }
+    };
+}</code></pre>
+
+  <p>Key rules:</p>
+  <ul>
+    <li>The interceptor <strong>must return the message</strong> — returning <code>null</code> <em>vetoes</em> the send.</li>
+    <li>Never modify the message in a wire tap — it's an observer, not a transformer.</li>
+    <li>The <code>patterns</code> attribute is a comma-separated list of Ant-style patterns matching channel bean names.</li>
+    <li>You can also configure a wire tap declaratively in XML with <code>&lt;int:wire-tap&gt;</code>.</li>
+  </ul>
+
+  <h2>Run the sandbox</h2>
+
+  <pre><code>cd topics/spring-integration/sandbox
+./mvnw spring-boot:run -Dspring-boot.run.profiles=lesson0009</code></pre>
+
+  <table>
+    <thead>
+      <tr><th>Section</th><th>What it demonstrates</th><th>Expected output</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td><code>nullChannel</code> sink</td><td><code>send returned true</code> — message discarded</td></tr>
+      <tr><td>2</td><td><code>errorChannel</code> for async errors</td><td>Async handler throws → <code>MessageDeliveryException</code> routed to error channel subscriber</td></tr>
+      <tr><td>3</td><td>Wire tap via <code>@GlobalChannelInterceptor</code></td><td><code>[wire-tap]</code> lines appear before each handler, observing every channel</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Key takeaways</h2>
+
+  <ul>
+    <li><strong><code>nullChannel</code></strong> is your "I don't care about this result" sink — always returns <code>true</code>, logs at DEBUG.</li>
+    <li><strong><code>errorChannel</code></strong> catches exceptions from async handlers. It's a <code>PublishSubscribeChannel</code> with a default <code>ERROR</code>-level logger.</li>
+    <li>Async error handling only applies when the handler runs on a <strong>different thread</strong> — with <code>DirectChannel</code>, exceptions propagate normally.</li>
+    <li><strong>Wire tap</strong> is an interceptor pattern for observability. Never modify the message; return it unchanged.</li>
+    <li>Use <code>@GlobalChannelInterceptor(patterns = "...")</code> for framework-wide wire tapping, or attach per-channel interceptors for selective observation.</li>
+  </ul>
+
+  <h2>Primary sources</h2>
+
+  <p>Read the official reference:</p>
+  <ul>
+    <li><a href="https://docs.spring.io/spring-integration/reference/channel/special-channels.html" target="_blank">Special Channels</a></li>
+    <li><a href="https://docs.spring.io/spring-integration/reference/error-handling.html" target="_blank">Error Handling</a></li>
+    <li><a href="https://docs.spring.io/spring-integration/reference/channel/configuration.html#channel-configuration-wiretap" target="_blank">Wire Tap configuration</a></li>
+  </ul>
+
+  <!-- ── Assessment ──────────────────────────────────────────────────── -->
+
+  <div class="assessment">
+
+    <h2>Action / Assessment</h2>
+    <p><em>Test your understanding of the special channels.</em></p>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What does nullChannel do with a message sent to it?</p>
+      <ul class="quiz-options">
+        <li>Throws MessageDeliveryException</li>
+        <li data-correct="true">Logs it at DEBUG and returns true</li>
+        <li>Stores it in an internal buffer</li>
+        <li>Forwards it to the errorChannel</li>
+      </ul>
+      <p class="quiz-explain">nullChannel acts as /dev/null: it logs the message at DEBUG and always returns true.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which scenario causes Spring Integration to send an ErrorMessage to the errorChannel?</p>
+      <ul class="quiz-options">
+        <li>A handler on a DirectChannel throws</li>
+        <li data-correct="true">A handler on an ExecutorChannel throws</li>
+        <li>The application context fails to start</li>
+        <li>A message has a null payload</li>
+      </ul>
+      <p class="quiz-explain">Async error handling only applies when the handler runs on a different thread. DirectChannel runs on the caller's thread, so exceptions propagate normally.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the default type of the global errorChannel bean?</p>
+      <ul class="quiz-options">
+        <li>QueueChannel</li>
+        <li>DirectChannel</li>
+        <li data-correct="true">PublishSubscribeChannel</li>
+        <li>ExecutorChannel</li>
+      </ul>
+      <p class="quiz-explain">The default errorChannel is a PublishSubscribeChannel with a LoggingHandler subscriber at ERROR level.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">If a message has an errorChannel header, what happens to the ErrorMessage?</p>
+      <ul class="quiz-options">
+        <li>It's always sent to the global errorChannel</li>
+        <li data-correct="true">It's sent to the channel named in the header instead of the global errorChannel</li>
+        <li>It's dropped with a warning</li>
+        <li>It's returned to the sender</li>
+      </ul>
+      <p class="quiz-explain">The errorChannel header takes priority over the global errorChannel bean. This enables per-message error routing.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What must a ChannelInterceptor used as a wire tap return from preSend?</p>
+      <ul class="quiz-options">
+        <li>void</li>
+        <li data-correct="true">The message (unchanged)</li>
+        <li>null</li>
+        <li>A boolean</li>
+      </ul>
+      <p class="quiz-explain">Return the message unchanged to continue the flow. Returning null vetoes the send.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the @GlobalChannelInterceptor attribute used to select which channels to intercept?</p>
+      <ul class="quiz-options">
+        <li>channels</li>
+        <li>channelNames</li>
+        <li data-correct="true">patterns</li>
+        <li>include</li>
+      </ul>
+      <p class="quiz-explain">The patterns attribute accepts Ant-style patterns (e.g., "*Channel" matches all channels ending in "Channel").</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Since version 5.4.3, what happens if the errorChannel has no subscribers?</p>
+      <ul class="quiz-options">
+        <li>The error is silently dropped</li>
+        <li data-correct="true">A MessageDispatchingException is thrown</li>
+        <li>The error is logged at DEBUG level</li>
+        <li>The application shuts down</li>
+      </ul>
+      <p class="quiz-explain">requireSubscribers=true by default. A MessageDispatchingException is thrown to prevent silent message loss. Override with spring.integration.channels.error.requireSubscribers=false.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which router can spread error messages across channels by exception type?</p>
+      <ul class="quiz-options">
+        <li>HeaderValueRouter</li>
+        <li>PayloadTypeRouter</li>
+        <li data-correct="true">ErrorMessageExceptionTypeRouter</li>
+        <li>RecipientListRouter</li>
+      </ul>
+      <p class="quiz-explain">ErrorMessageExceptionTypeRouter maps exception types to output channels for differentiated error handling.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What does nullChannel do with a reactive Publisher payload?</p>
+      <ul class="quiz-options">
+        <li>Ignores it completely</li>
+        <li data-correct="true">Subscribes to it immediately to initiate stream processing</li>
+        <li>Converts it to a CompletableFuture</li>
+        <li>Blocks and collects all items</li>
+      </ul>
+      <p class="quiz-explain">nullChannel subscribes to a Publisher payload right away so reactive stream processing starts, even though data is discarded. Errors are logged at WARN.</p>
+    </div>
+
+    <p><strong>Written recall (say it out loud):</strong> Explain the difference between how exceptions are handled on a DirectChannel vs. an ExecutorChannel. Then describe when you would route a component's output to nullChannel, and how you'd set up a wire tap to monitor all channels whose names end in "Channel".</p>
+  </div>
+
+  <div class="lesson-nav">
+    <a href="0008-message-channel-configuration.html">← Previous: Configuring Message Channels</a>
+    <a href="0010-poller.html">Next lesson → The Poller</a>
+  </div>
+
+  <div class="reminder">
+    <strong>Reminder:</strong> I'm your teacher for this track. If any of this is fuzzy, ask a followup in chat before moving to Lesson 0010.
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>

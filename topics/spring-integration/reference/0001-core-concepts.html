@@ -117,6 +117,11 @@ public String handle(@Payload String p, @Header("locale") String locale) { ... }
       <tr><td><code>ExecutorChannel</code></td><td>Point-to-point channel that dispatches to each handler on a thread from the provided <code>TaskExecutor</code> — <code>send()</code> returns before the handler runs.</td></tr>
       <tr><td><code>applySequence</code></td><td>Flag on <code>PublishSubscribeChannel</code> that injects <code>sequenceNumber</code> / <code>sequenceSize</code> headers per subscriber copy; required upstream of aggregators/resequencers.</td></tr>
       <tr><td><strong>Bounded Queue</strong></td><td>A <code>QueueChannel</code> created with a fixed capacity — <code>send()</code> returns <code>false</code> when full (after timeout); prevents unbounded memory growth.</td></tr>
+      <tr><td><code>nullChannel</code></td><td>Pre-defined bean acting as <code>/dev/null</code>: logs messages at <code>DEBUG</code> and returns <code>true</code>; discards the payload.</td></tr>
+      <tr><td><code>errorChannel</code></td><td>Pre-defined <code>PublishSubscribeChannel</code> for async error handling; receives <code>ErrorMessage</code> wrappers when a handler on a different thread throws.</td></tr>
+      <tr><td><code>ErrorMessage</code></td><td>A <code>Message</code> whose payload is a <code>MessagingException</code> or other <code>Throwable</code>, published by the framework when an async handler fails.</td></tr>
+      <tr><td><code>ErrorMessageExceptionTypeRouter</code></td><td>Router subscribed to <code>errorChannel</code> that dispatches <code>ErrorMessage</code> instances to different channels based on exception type.</td></tr>
+      <tr><td><code>requireSubscribers</code></td><td>Property on <code>errorChannel</code> (default <code>true</code> since 5.4.3) that throws <code>MessageDispatchingException</code> if no subscriber is registered.</td></tr>
     </tbody>
   </table>
 
