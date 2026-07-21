@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0008 • Configuring Message Channels</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0008</span>
+      <span>Phase 2 • Core Messaging</span>
+      <span>~20 min</span>
+    </div>
+    <h1>Configuring Message Channels</h1>
+    <p><em>Datatype channels, dispatcher failover, executor channels, publish-subscribe sequencing, and bounded queues — the channel configuration options that tune flow behaviour.</em></p>
+  </div>
+
+  <h2>Why this lesson exists</h2>
+
+  <p>So far you've been creating channels with their default settings (<code>new DirectChannel()</code>, <code>new QueueChannel()</code>). But channels have important configuration levers you need to know about for production flows <a href="https://docs.spring.io/spring-integration/reference/channel/configuration.html" target="_blank">[ref]</a>:</p>
+
+  <ul>
+    <li><strong>Datatype channels</strong> — restrict which payload types a channel accepts, with optional auto-conversion.</li>
+    <li><strong>Dispatcher failover</strong> — control whether a channel tries the next handler when one throws.</li>
+    <li><strong>Executor channels</strong> — hand off dispatch to a thread pool (different from the default caller-thread model).</li>
+    <li><strong>Publish-subscribe sequencing</strong> — broadcast with <code>sequenceSize</code> / <code>sequenceNumber</code> headers for downstream aggregation.</li>
+    <li><strong>Bounded queues</strong> — limit <code>QueueChannel</code> capacity to prevent memory exhaustion.</li>
+  </ul>
+
+  <div class="callout primary">
+    <strong>Mission tie-in:</strong> Choosing the right channel configuration is a core design skill. Datatype channels protect consumers from unexpected payloads. Failover control decides your flow's resilience strategy. Executor channels enable async hand-off. Sequence headers on broadcast channels feed aggregators. Bounded queues prevent back-pressure from turning into OOM errors.
+  </div>
+
+  <h2>1. Datatype Channel</h2>
+
+  <p>A <strong>Datatype Channel</strong> restricts the payload types accepted by a channel <a href="https://docs.spring.io/spring-integration/reference/channel/configuration.html#channel-configuration-datatype" target="_blank">[ref]</a>. If the payload doesn't match, the channel either:</p>
+  <ul>
+    <li>Throws <code>MessageDeliveryException</code> if no conversion is possible, or</li>
+    <li>Converts it via the <code>integrationConversionService</code> if a matching <code>Converter</code> is registered.</li>
+  </ul>
+
+  <pre><code>@Bean
+public MessageChannel numberChannel() {
+    DirectChannel channel = new DirectChannel();
+    channel.setDatatypes(Number.class);
+    return channel;
+}</code></pre>
+
+  <p>You can provide multiple types and register converters with <code>@IntegrationConverter</code>:</p>
+
+  <pre><code>@Bean
+public MessageChannel numberChannel() {
+    DirectChannel channel = new DirectChannel();
+    channel.setDatatypes(String.class, Number.class);
+    return channel;
+}
+
+@Bean
+@IntegrationConverter
+public StringToIntegerConverter strToInt() {
+    return new StringToIntegerConverter();
+}</code></pre>
+
+  <p>The type check uses <code>isAssignableFrom</code> — so <code>Integer</code> and <code>Double</code> both satisfy <code>Number.class</code>.</p>
+
+  <h2>2. Dispatcher Failover</h2>
+
+  <p><code>DirectChannel</code> (and <code>ExecutorChannel</code>) use a <code>UnicastingDispatcher</code> under the hood. By default, <strong>failover is enabled</strong>: if the first subscribed handler throws an exception, the dispatcher tries the next handler <a href="https://docs.spring.io/spring-integration/reference/channel/configuration.html#channel-configuration-directchannel" target="_blank">[ref]</a>.</p>
+
+  <p>When failover is <strong>disabled</strong>, the exception propagates immediately to the sender — no fallback handler is tried:</p>
+
+  <pre><code>@Bean
+public MessageChannel failFastChannel() {
+    DirectChannel channel = new DirectChannel();
+    channel.setFailover(false);
+    return channel;
+}</code></pre>
+
+  <p>You can also pass <code>null</code> as the <code>LoadBalancingStrategy</code> to disable load-balancing entirely, creating a fixed-order dispatch:</p>
+
+  <pre><code>@Bean
+public MessageChannel fixedOrderChannel() {
+    return new DirectChannel(null);   // no load-balancer, no failover
+}</code></pre>
+
+  <p>Since 6.3, you can also provide a <code>Predicate&lt;Exception&gt; failoverStrategy</code> for finer-grained decisions.</p>
+
+  <h2>3. ExecutorChannel</h2>
+
+  <p>An <code>ExecutorChannel</code> is point-to-point like <code>DirectChannel</code>, but the handler is invoked on a thread from the provided <code>TaskExecutor</code> pool, not the sender's thread <a href="https://docs.spring.io/spring-integration/reference/channel/configuration.html#channel-configuration-executorchannel" target="_blank">[ref]</a>. This breaks the single-threaded execution context — the <code>send()</code> call returns immediately, and the handler runs later on a pool thread.</p>
+
+  <pre><code>@Bean
+public MessageChannel executorChannel() {
+    return new ExecutorChannel(someExecutor());
+}</code></pre>
+
+  <div class="callout secondary">
+    <strong>Important:</strong> Because the sender returns before the handler runs, any active <strong>transaction context is not propagated</strong>. The handler also can't send an exception back to the sender — errors go to the error channel instead.
+  </div>
+
+  <h2>4. PublishSubscribeChannel with applySequence</h2>
+
+  <p>When you set <code>applySequence = true</code> on a <code>PublishSubscribeChannel</code>, the channel automatically adds <code>sequenceSize</code> and <code>sequenceNumber</code> headers to each copy <a href="https://docs.spring.io/spring-integration/reference/channel/configuration.html#channel-configuration-pubsubchannel" target="_blank">[ref]</a>. With 2 subscribers, the first gets <code>sequenceNumber=1, sequenceSize=2</code> and the second gets <code>sequenceNumber=2, sequenceSize=2</code>. This is essential for downstream <strong>aggregators</strong> and <strong>resequencers</strong> (Phase 4 topics).</p>
+
+  <pre><code>@Bean
+public MessageChannel pubsubChannel() {
+    PublishSubscribeChannel channel = new PublishSubscribeChannel();
+    channel.setApplySequence(true);
+    return channel;
+}</code></pre>
+
+  <p>Without this flag, each subscriber receives the <strong>same</strong> <code>Message</code> instance (payload and header references are shared; Spring Integration enforces immutability). With the flag, new <code>Message</code> instances are created with distinct sequence headers.</p>
+
+  <h2>5. Bounded QueueChannel</h2>
+
+  <p>A <code>QueueChannel</code> without a capacity is unbounded — it can grow until memory runs out <a href="https://docs.spring.io/spring-integration/reference/channel/configuration.html#channel-configuration-queuechannel" target="_blank">[ref]</a>. Always set a capacity:</p>
+
+  <pre><code>@Bean
+public PollableChannel boundedQueueChannel() {
+    return new QueueChannel(25);
+}</code></pre>
+
+  <p>When the queue is full, <code>send()</code> blocks until space is available (or the send timeout expires). For persistent queues, you can provide a <code>message-store</code> attribute backed by JDBC, Redis, or MongoDB — this survives system restarts.</p>
+
+  <h2>Run the sandbox</h2>
+
+  <pre><code>cd topics/spring-integration/sandbox
+./mvnw spring-boot:run -Dspring-boot.run.profiles=lesson0008</code></pre>
+
+  <p>The runner demonstrates all five configurations in sequence:</p>
+
+  <table>
+    <thead>
+      <tr><th>Section</th><th>Channel config</th><th>Expected behaviour</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>Datatype (Number.class)</td><td>Integer and Double accepted; String rejected with exception</td></tr>
+      <tr><td>2</td><td>failover=false</td><td>Handler A throws → exception propagates; Handler B never runs</td></tr>
+      <tr><td>3</td><td>ExecutorChannel</td><td>Handler runs on pool thread, <code>send()</code> returns immediately</td></tr>
+      <tr><td>4</td><td>applySequence=true</td><td>Two subscribers each get distinct <code>sequenceNumber</code>/<code>sequenceSize</code></td></tr>
+      <tr><td>5</td><td>QueueChannel(2)</td><td>Third send with timeout returns <code>false</code> (queue full)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Key takeaways</h2>
+
+  <ul>
+    <li><strong>Datatype channels</strong> enforce payload types at the channel boundary. Register <code>@IntegrationConverter</code> beans for auto-conversion.</li>
+    <li><strong>Failover</strong> (default: on) lets the dispatcher try the next handler on exception. Disable it for fail-fast semantics.</li>
+    <li><strong>ExecutorChannel</strong> breaks the caller's thread — the <code>send()</code> returns before the handler runs. No transaction propagation.</li>
+    <li><strong>applySequence</strong> on <code>PublishSubscribeChannel</code> is required upstream of aggregators/resequencers.</li>
+    <li><strong>Always bound your <code>QueueChannel</code> capacity</strong> — unbounded queues risk OOM under back-pressure.</li>
+  </ul>
+
+  <h2>Primary source</h2>
+
+  <p>Read the official reference: <a href="https://docs.spring.io/spring-integration/reference/channel/configuration.html" target="_blank">Spring Integration Reference — Configuring Message Channels</a>.</p>
+
+  <!-- ── Assessment ──────────────────────────────────────────────────── -->
+
+  <div class="assessment">
+
+    <h2>Action / Assessment</h2>
+    <p><em>Test your understanding of all the key points covered in this lesson.</em></p>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What method do you call on a DirectChannel to restrict accepted payload types?</p>
+      <ul class="quiz-options">
+        <li>setAcceptedTypes()</li>
+        <li data-correct="true">setDatatypes()</li>
+        <li>setPayloadTypes()</li>
+        <li>setAllowedTypes()</li>
+      </ul>
+      <p class="quiz-explain">DirectChannel.setDatatypes(Class...) restricts which payload types the channel accepts.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What happens when a message with an incompatible payload is sent to a datatype channel that has a matching @IntegrationConverter?</p>
+      <ul class="quiz-options">
+        <li>The message is silently dropped</li>
+        <li>An exception is thrown immediately</li>
+        <li data-correct="true">The payload is converted via the integrationConversionService</li>
+        <li>The message is sent to the error channel</li>
+      </ul>
+      <p class="quiz-explain">If a Converter is registered, the integrationConversionService attempts to convert the payload before rejecting it.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the default failover setting on DirectChannel?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">true — if one handler throws, the dispatcher tries the next</li>
+        <li>false — the exception propagates to the sender immediately</li>
+        <li>There is no failover — DirectChannel has only one subscriber</li>
+        <li>It depends on the number of subscribers</li>
+      </ul>
+      <p class="quiz-explain">Failover defaults to true. The dispatcher tries the next subscribed handler when the current one throws.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which channel type breaks the single-threaded execution context between sender and handler?</p>
+      <ul class="quiz-options">
+        <li>DirectChannel</li>
+        <li data-correct="true">ExecutorChannel</li>
+        <li>QueueChannel</li>
+        <li>PublishSubscribeChannel (with default executor)</li>
+      </ul>
+      <p class="quiz-explain">ExecutorChannel hands off dispatch to a TaskExecutor, so the handler runs on a different thread. The send() returns immediately.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Why is transaction context NOT propagated with an ExecutorChannel?</p>
+      <ul class="quiz-options">
+        <li>ExecutorChannel doesn't support transactions</li>
+        <li data-correct="true">Because the handler runs on a different thread than the sender</li>
+        <li>Because transactions require a PollableChannel</li>
+        <li>Because send() returns before the handler is invoked</li>
+      </ul>
+      <p class="quiz-explain">Transaction context is thread-bound. Since the handler runs on a different thread, the sender's transaction is not visible to it.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What do sequenceNumber and sequenceSize headers enable downstream?</p>
+      <ul class="quiz-options">
+        <li>Message routing</li>
+        <li>Payload transformation</li>
+        <li data-correct="true">Aggregation and resequencing</li>
+        <li>Channel interception</li>
+      </ul>
+      <p class="quiz-explain">Sequence headers allow an aggregator or resequencer to correlate and reorder the split copies back into a single result.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the default capacity of a QueueChannel created with new QueueChannel()?</p>
+      <ul class="quiz-options">
+        <li>Integer.MAX_VALUE</li>
+        <li>100</li>
+        <li data-correct="true">Unbounded (no capacity limit)</li>
+        <li>10</li>
+      </ul>
+      <p class="quiz-explain">new QueueChannel() with no capacity argument is unbounded. Always specify a capacity to prevent OOM.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What does send() return when a bounded QueueChannel is full and the timeout expires?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">false</li>
+        <li>null</li>
+        <li>It throws MessageDeliveryException</li>
+        <li>It blocks indefinitely</li>
+      </ul>
+      <p class="quiz-explain">send() returns false when the channel is full and the send timeout expires. It does not throw (unless no timeout is set and it blocks forever).</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which annotation registers a custom converter for datatype channel auto-conversion?</p>
+      <ul class="quiz-options">
+        <li>@Converter</li>
+        <li>@TypeConverter</li>
+        <li data-correct="true">@IntegrationConverter</li>
+        <li>@ConversionService</li>
+      </ul>
+      <p class="quiz-explain">@IntegrationConverter on a Converter bean registers it with the integrationConversionService.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">How do you create a DirectChannel with fixed-order dispatch and no failover?</p>
+      <ul class="quiz-options">
+        <li>new DirectChannel(false, false)</li>
+        <li>new DirectChannel().setFailover(false).setLoadBalancer("none")</li>
+        <li data-correct="true">new DirectChannel(null) — null LoadBalancingStrategy</li>
+        <li>Set the order attribute on each subscriber</li>
+      </ul>
+      <p class="quiz-explain">Passing null to DirectChannel's LoadBalancingStrategy constructor disables load-balancing and failover, creating a fixed-order dispatch.</p>
+    </div>
+
+    <p><strong>Written recall (say it out loud):</strong> Without looking back, name five channel configuration options from this lesson and describe what problem each solves. Then explain when you would disable failover, and why you should always bound a QueueChannel.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <a href="0007-messaging-template.html">← Previous: MessagingTemplate</a>
+    <a href="0009-special-channels.html">Next lesson → Special Channels</a>
+  </div>
+
+  <div class="reminder">
+    <strong>Reminder:</strong> I'm your teacher for this track. If any of this is fuzzy, ask a followup in chat before moving to Lesson 0009.
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>
