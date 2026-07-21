@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0012 • Messaging Bridge</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0012</span>
+      <span>Phase 3 • Endpoints &amp; Polling</span>
+      <span>~15 min</span>
+    </div>
+    <h1>Messaging Bridge</h1>
+    <p><em>A trivial endpoint that connects two channels — the simplest way to join a PollableChannel to a SubscribableChannel (or vice versa).</em></p>
+  </div>
+
+  <h2>Why this lesson exists</h2>
+
+  <p>A <strong>messaging bridge</strong> is the simplest endpoint in Spring Integration. It forwards every message received on its input channel to its output channel, with zero transformation. Conceptually it's just a <code>BridgeHandler</code> — a handler that calls <code>outputChannel.send(message)</code> <a href="https://docs.spring.io/spring-integration/reference/bridge.html" target="_blank">[ref]</a>.</p>
+
+  <p>The bridge is most useful for connecting a <code>PollableChannel</code> to a <code>SubscribableChannel</code>. The bridge manages the polling configuration, so downstream subscribers don't need to know about the queue. This also enables <strong>throttling</strong>: the poller's trigger and <code>maxMessagesPerPoll</code> control the rate at which messages flow through.</p>
+
+  <div class="callout primary">
+    <strong>Mission tie-in:</strong> The bridge completes the "how do I connect things" trilogy: channel adapter (on-ramp/off-ramp), poller (scheduler), bridge (connector). Understanding all three gives you complete control over how messages enter, move through, and leave your integration flows.
+  </div>
+
+  <h2>1. @BridgeFrom and @BridgeTo</h2>
+
+  <p>The simplest way to create a bridge is with <code>@BridgeFrom</code> on the target channel bean <a href="https://docs.spring.io/spring-integration/reference/bridge.html#_configuring_a_bridge_with_java_configuration" target="_blank">[ref]</a>:</p>
+
+  <pre><code>@Bean
+public PollableChannel sourceChannel() {
+    return new QueueChannel();
+}
+
+@Bean
+@BridgeFrom(value = "sourceChannel",
+            poller = @Poller(fixedDelay = "500", maxMessagesPerPoll = "1"))
+public SubscribableChannel bridgedChannel() {
+    return new DirectChannel();
+}</code></pre>
+
+  <p>This creates a <code>BridgeHandler</code> that polls <code>sourceChannel</code> every 500ms and forwards each message to <code>bridgedChannel</code>. The handler itself then subscribes to a downstream subscriber (a <code>@ServiceActivator</code>).</p>
+
+  <p>Alternatively, <code>@BridgeTo</code> goes on the source channel bean and names the target:</p>
+
+  <pre><code>@Bean
+@BridgeTo(value = "bridgedChannel",
+          poller = @Poller(fixedDelay = "500", maxMessagesPerPoll = "1"))
+public PollableChannel sourceChannel() {
+    return new QueueChannel();
+}</code></pre>
+
+  <h2>2. BridgeHandler (@ServiceActivator)</h2>
+
+  <p>You can create a bridge programmatically with <code>BridgeHandler</code> directly <a href="https://docs.spring.io/spring-integration/reference/bridge.html#_configuring_a_bridge_with_java_configuration" target="_blank">[ref]</a>:</p>
+
+  <pre><code>@Bean
+@ServiceActivator(inputChannel = "sourceChannel",
+                  poller = @Poller(fixedRate = "500", maxMessagesPerPoll = "1"))
+public BridgeHandler bridgeHandler() {
+    BridgeHandler bridge = new BridgeHandler();
+    bridge.setOutputChannel(targetChannel());
+    return bridge;
+}</code></pre>
+
+  <p>This gives you full control — you can set the output channel programmatically, configure it to use the reply channel from the message headers, or attach interceptors.</p>
+
+  <h2>3. Java DSL bridge</h2>
+
+  <p>In the Java DSL, the bridge is a flow step <a href="https://docs.spring.io/spring-integration/reference/bridge.html#_configuring_a_bridge_with_the_java_dsl" target="_blank">[ref]</a>:</p>
+
+  <pre><code>@Bean
+public IntegrationFlow bridgeFlow() {
+    return IntegrationFlow.from("sourceChannel")
+            .bridge(e -> e.poller(Pollers.fixedDelay(500).maxMessagesPerPoll(1)))
+            .channel("targetChannel")
+            .get();
+}</code></pre>
+
+  <p>The <code>.bridge()</code> step is equivalent to <code>.handle(new BridgeHandler(), ...)</code> — it's just syntactic sugar for readability.</p>
+
+  <h2>4. Use cases</h2>
+
+  <ul>
+    <li><strong>Pollable → Subscribable:</strong> The primary use case. A <code>QueueChannel</code> with poller feeds a <code>DirectChannel</code> that downstream subscribers can use without polling concerns.</li>
+    <li><strong>Throttling:</strong> The bridge's poller controls message throughput. <code>maxMessagesPerPoll="10"</code> with <code>fixedRate="5000"</code> limits to 10 messages every 5 seconds.</li>
+    <li><strong>Connecting channel adapters:</strong> Bridge stdin to stdout (<code>&lt;int-stream:stdin-channel-adapter&gt;</code> → <code>&lt;int:bridge&gt;</code> → <code>&lt;int-stream:stdout-channel-adapter&gt;</code>), or file to JMS, mail to file, etc.</li>
+  </ul>
+
+  <p>If no <code>output-channel</code> is specified, the bridge uses the reply channel from the incoming message header (if one exists). If neither is found, an exception is thrown.</p>
+
+  <h2>Run the sandbox</h2>
+
+  <pre><code>cd topics/spring-integration/sandbox
+./mvnw spring-boot:run -Dspring-boot.run.profiles=lesson0012</code></pre>
+
+  <table>
+    <thead><tr><th>Section</th><th>What it demonstrates</th><th>Expected output</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>@BridgeFrom</code> — QueueChannel → DirectChannel</td><td><code>[bridgeFrom] received: bf-msg-1</code>, <code>bf-msg-2</code></td></tr>
+      <tr><td>2</td><td><code>BridgeHandler</code> + <code>@ServiceActivator</code></td><td><code>[bridgeHandler] received: bh-msg-1</code>, <code>bh-msg-2</code></td></tr>
+      <tr><td>3</td><td>Java DSL <code>.bridge()</code> step</td><td><code>[dsl] received: dsl-msg-1</code>, <code>dsl-msg-2</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Key takeaways</h2>
+
+  <ul>
+    <li><strong>Messaging Bridge</strong> is a zero-transformation endpoint that forwards messages from one channel to another.</li>
+    <li><strong>Primary use case:</strong> bridge a <code>PollableChannel</code> to a <code>SubscribableChannel</code> so downstream subscribers don't need polling configuration.</li>
+    <li><strong>Throttling:</strong> the bridge's poller controls throughput via <code>maxMessagesPerPoll</code> and trigger configuration.</li>
+    <li><strong>Three configuration styles:</strong> <code>@BridgeFrom</code>/<code>@BridgeTo</code>, <code>BridgeHandler</code> + <code>@ServiceActivator</code>, Java DSL <code>.bridge()</code>.</li>
+    <li>If no output channel is specified, the bridge uses the reply channel from the incoming message header.</li>
+  </ul>
+
+  <h2>Primary sources</h2>
+
+  <ul>
+    <li><a href="https://docs.spring.io/spring-integration/reference/bridge.html" target="_blank">Messaging Bridge</a></li>
+  </ul>
+
+  <!-- ── Assessment ──────────────────────────────────────────────────── -->
+
+  <div class="assessment">
+
+    <h2>Action / Assessment</h2>
+    <p><em>Test your understanding of the messaging bridge.</em></p>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the primary purpose of a messaging bridge?</p>
+      <ul class="quiz-options">
+        <li>To transform message payloads between channels</li>
+        <li data-correct="true">To forward messages from one channel to another with zero transformation</li>
+        <li>To split messages into multiple channels</li>
+        <li>To aggregate messages from multiple channels</li>
+      </ul>
+      <p class="quiz-explain">A messaging bridge simply forwards messages from an input channel to an output channel, unchanged.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the most common use case for a messaging bridge?</p>
+      <ul class="quiz-options">
+        <li>Transforming JSON to XML</li>
+        <li data-correct="true">Connecting a PollableChannel to a SubscribableChannel</li>
+        <li>Logging messages</li>
+        <li>Filtering messages</li>
+      </ul>
+      <p class="quiz-explain">The bridge allows a PollableChannel (with poller) to feed a SubscribableChannel, so downstream subscribers don't need polling configuration.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which annotation goes on the target channel to create a bridge from a source channel?</p>
+      <ul class="quiz-options">
+        <li>@BridgeTo</li>
+        <li data-correct="true">@BridgeFrom</li>
+        <li>@Bridge</li>
+        <li>@ChannelBridge</li>
+      </ul>
+      <p class="quiz-explain">@BridgeFrom(value = "sourceChannel") on the target channel bean creates a bridge that polls the source and forwards to the annotated channel.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What class implements the bridge in the framework?</p>
+      <ul class="quiz-options">
+        <li>ChannelBridge</li>
+        <li data-correct="true">BridgeHandler</li>
+        <li>MessageBridge</li>
+        <li>BridgeEndpoint</li>
+      </ul>
+      <p class="quiz-explain">BridgeHandler is the handler that receives a message and sends it to the output channel. It's a MessageHandler implementation.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What happens if no output-channel is configured on a bridge?</p>
+      <ul class="quiz-options">
+        <li>Messages are discarded</li>
+        <li data-correct="true">The bridge uses the reply channel from the incoming message header</li>
+        <li>The bridge sends to errorChannel</li>
+        <li>An exception is always thrown</li>
+      </ul>
+      <p class="quiz-explain">If no output channel is defined, the bridge uses the reply channel from the inbound message header, if available. If neither exists, an exception is thrown.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the Java DSL step equivalent to new BridgeHandler() in a flow?</p>
+      <ul class="quiz-options">
+        <li>.route()</li>
+        <li>.transform()</li>
+        <li data-correct="true">.bridge()</li>
+        <li>.handle()</li>
+      </ul>
+      <p class="quiz-explain">.bridge(e -> ...) is syntactic sugar in the Java DSL that adds a BridgeHandler endpoint to the flow.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">How does a messaging bridge enable throttling?</p>
+      <ul class="quiz-options">
+        <li>By rejecting messages beyond a rate limit</li>
+        <li data-correct="true">By controlling the poller's trigger and maxMessagesPerPoll</li>
+        <li>By buffering messages in a queue</li>
+        <li>By slowing down the sender thread</li>
+      </ul>
+      <p class="quiz-explain">The bridge's poller configuration controls how often messages are forwarded and how many per poll cycle, effectively throttling throughput.</p>
+    </div>
+
+    <p><strong>Written recall (say it out loud):</strong> Describe a scenario where you would use a messaging bridge instead of connecting the channels directly. Then explain the role of the poller in that bridge.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <a href="0011-channel-adapter.html">← Previous: Channel Adapter</a>
+    <a href="0013-transformer.html">Next lesson → Transformer</a>
+  </div>
+
+  <div class="reminder">
+    <strong>Reminder:</strong> I'm your teacher for this track. If any of this is fuzzy, ask a followup in chat before moving to Lesson 0013.
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>

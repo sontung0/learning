@@ -134,6 +134,10 @@ public String handle(@Payload String p, @Header("locale") String locale) { ... }
       <tr><td><strong>Inbound Channel Adapter</strong></td><td>Producer endpoint (<code>SourcePollingChannelAdapter</code>) that polls a method/expression/<code>MessageSource</code> and sends non-null results to a channel.</td></tr>
       <tr><td><strong>Outbound Channel Adapter</strong></td><td>Consumer endpoint (sink) that receives messages from a channel and passes payloads to a void-returning method.</td></tr>
       <tr><td><code>@InboundChannelAdapter</code></td><td>Annotation marking a method as an inbound channel adapter source — must be on a <code>MessageSource</code>, <code>Supplier</code>, or plain method inside a managed bean.</td></tr>
+      <tr><td><strong>Messaging Bridge</strong></td><td>Zero-transformation endpoint that forwards messages from an input channel to an output channel — connects a <code>PollableChannel</code> to a <code>SubscribableChannel</code>.</td></tr>
+      <tr><td><code>@BridgeFrom</code></td><td>Annotation on the <em>target</em> channel bean that creates a bridge from a named source channel with a poller.</td></tr>
+      <tr><td><code>@BridgeTo</code></td><td>Annotation on the <em>source</em> channel bean that creates a bridge to a named target channel with a poller.</td></tr>
+      <tr><td><code>BridgeHandler</code></td><td><code>MessageHandler</code> implementation that receives a message and sends it to an output channel — the core of the bridge endpoint.</td></tr>
     </tbody>
   </table>
 
