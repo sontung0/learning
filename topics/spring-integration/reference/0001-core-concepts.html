@@ -108,6 +108,10 @@ public String handle(@Payload String p, @Header("locale") String locale) { ... }
       <tr><td><code>@GlobalChannelInterceptor</code></td><td>Annotation that applies a <code>ChannelInterceptor</code> bean to all channels matching a name pattern.</td></tr>
       <tr><td>Wire Tap</td><td>Pattern where a <code>ChannelInterceptor</code> copies messages to a secondary channel for monitoring/auditing without affecting the primary flow.</td></tr>
       <tr><td><code>WireTap</code></td><td>Spring Integration's read-only interceptor class that implements the wire tap pattern.</td></tr>
+      <tr><td><code>MessagingTemplate</code></td><td>Imperative API in <code>org.springframework.integration.support</code> for programmatic send/receive/sendAndReceive against channels.</td></tr>
+      <tr><td><code>send(MessageChannel, Message)</code></td><td>MessagingTemplate method — fire-and-forget; returns <code>true</code> on success, <code>false</code> on timeout.</td></tr>
+      <tr><td><code>receive(PollableChannel)</code></td><td>MessagingTemplate method — pulls next message; returns <code>null</code> on empty queue / timeout.</td></tr>
+      <tr><td><code>sendAndReceive(MessageChannel, Message)</code></td><td>MessagingTemplate method — request-reply with a temporary anonymous reply channel; blocks until the reply arrives.</td></tr>
     </tbody>
   </table>
 

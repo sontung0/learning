@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 0007 • MessagingTemplate</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="lesson-header">
+    <div class="lesson-meta">
+      <span class="lesson-number">Lesson 0007</span>
+      <span>Phase 2 • Core Messaging</span>
+      <span>~15 min</span>
+    </div>
+    <h1>MessagingTemplate</h1>
+    <p><em>Programmatic send, receive, and request-reply against channels — no endpoint annotations required.</em></p>
+  </div>
+
+  <h2>Why this lesson exists</h2>
+
+  <p>So far every lesson has wired channels and endpoints through <strong>declarative</strong> configuration: <code>@ServiceActivator</code>, <code>@Bean</code> channels, <code>.subscribe()</code> calls. But what if you need to send a message from <strong>application code</strong> — say, inside a controller, a scheduled task, or a test — without annotating a method?</p>
+
+  <p>That's what <code>MessagingTemplate</code> is for <a href="https://docs.spring.io/spring-integration/reference/channel/template.html" target="_blank">[ref]</a>. It gives you a simple, imperative API:</p>
+
+  <ul>
+    <li><code>send(channel, message)</code> — fire-and-forget.</li>
+    <li><code>receive(channel)</code> — pull the next message off a pollable channel.</li>
+    <li><code>sendAndReceive(channel, request)</code> — send a request and block for a reply.</li>
+  </ul>
+
+  <div class="callout primary">
+    <strong>Mission tie-in:</strong> Not every integration flow is a pure pipes-and-filters pipeline. Sometimes you need to <em>reach into</em> the messaging system from business logic — send a command, poll a queue, or call a request-reply gateway. <code>MessagingTemplate</code> is the tool for that. It's also the imperative counterpart to the declarative <code>@MessagingGateway</code> you'll meet in Phase 6.
+  </div>
+
+  <h2>Core methods</h2>
+
+  <table>
+    <thead>
+      <tr><th>Method</th><th>Accepts</th><th>Returns</th><th>Use case</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>send(MessageChannel, Message)</code></td>
+        <td>Any channel</td>
+        <td><code>boolean</code></td>
+        <td>Fire-and-forget. Returns <code>false</code> on timeout.</td>
+      </tr>
+      <tr>
+        <td><code>receive(PollableChannel)</code></td>
+        <td>Pollable channel</td>
+        <td><code>Message&lt;?&gt;</code> or <code>null</code></td>
+        <td>Pull next message; <code>null</code> means empty queue or timeout.</td>
+      </tr>
+      <tr>
+        <td><code>sendAndReceive(MessageChannel, Message)</code></td>
+        <td>Any channel</td>
+        <td><code>Message&lt;?&gt;</code></td>
+        <td>Request-reply. Creates a temporary anonymous reply channel.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>Timeouts control blocking behaviour:</p>
+  <ul>
+    <li><code>setSendTimeout(long)</code> — max ms to wait for the send to complete. Default: <code>-1</code> (block forever).</li>
+    <li><code>setReceiveTimeout(long)</code> — max ms to wait for <code>receive()</code>. Default: <code>-1</code> (block forever).</li>
+  </ul>
+
+  <h2>How sendAndReceive works</h2>
+
+  <p>When you call <code>sendAndReceive</code>, the template:</p>
+  <ol>
+    <li>Creates a <strong>temporary anonymous</strong> <code>PollableChannel</code>.</li>
+    <li>Sets it as the outgoing message's <code>replyChannel</code> header.</li>
+    <li>Sends the message to the target channel.</li>
+    <li>Blocks on <code>receive()</code> against the temporary channel until the reply arrives.</li>
+  </ol>
+
+  <p>The endpoint handling the request extracts the <code>replyChannel</code> header from the incoming message and sends its reply there. The template picks it up and returns it. This is the same <strong>return address</strong> pattern from EIP, orchestrated automatically.</p>
+
+  <div class="callout secondary">
+    <strong>Note:</strong> <code>MessagingTemplate</code> lives in <code>org.springframework.integration.support</code> — it's part of <code>spring-integration-core</code>, so no extra dependency.
+  </div>
+
+  <h2>Run the sandbox</h2>
+
+  <pre><code>cd topics/spring-integration/sandbox
+./mvnw spring-boot:run -Dspring-boot.run.profiles=lesson0007</code></pre>
+
+  <p>The runner demonstrates all three operations in sequence:</p>
+
+  <h3>Section 1 — send()</h3>
+  <p>A fire-and-forget send to a <code>DirectChannel</code>. The template returns immediately — the handler runs on the caller's thread.</p>
+
+  <h3>Section 2 — receive()</h3>
+  <p>Three messages are pre-loaded into a <code>QueueChannel</code>, then the template pulls them one at a time. The fourth call returns <code>null</code> because the queue is empty (and our <code>receiveTimeout</code> expires).</p>
+
+  <h3>Section 3 — sendAndReceive()</h3>
+  <p>A message is sent to a handler that uppercases the payload and sends it back via the <code>replyChannel</code> header. The template blocks until the reply arrives and returns it.</p>
+
+  <div class="callout secondary">
+    <strong>Heads up:</strong> Because <code>sendAndReceive</code> blocks the caller until a reply arrives, it's best used where the round-trip latency is predictable. For asynchronous request-reply, you'd use a <code>@MessagingGateway</code> with a <code>CompletableFuture&lt;?&gt;</code> return type — but that's a Phase 6 topic.
+  </div>
+
+  <h2>Key takeaways</h2>
+
+  <ul>
+    <li><code>MessagingTemplate</code> is the imperative way to interact with channels from application code.</li>
+    <li>Three operations: <code>send</code> (fire-and-forget), <code>receive</code> (pull), <code>sendAndReceive</code> (request-reply).</li>
+    <li><code>sendAndReceive</code> uses a temporary anonymous reply channel — the <strong>return address</strong> EIP.</li>
+    <li>Timeouts (<code>sendTimeout</code>, <code>receiveTimeout</code>) prevent indefinite blocking; <code>-1</code> means block forever.</li>
+    <li>It's the imperative counterpart to <code>@MessagingGateway</code> (declarative request-reply).</li>
+  </ul>
+
+  <h2>Primary source</h2>
+
+  <p>Read the official reference: <a href="https://docs.spring.io/spring-integration/reference/channel/template.html" target="_blank">Spring Integration Reference — MessagingTemplate</a>.</p>
+
+  <!-- ── Assessment ──────────────────────────────────────────────────── -->
+
+  <div class="assessment">
+
+    <h2>Action / Assessment</h2>
+    <p><em>Test your understanding of all the key points covered in this lesson.</em></p>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What package does MessagingTemplate live in?</p>
+      <ul class="quiz-options">
+        <li>org.springframework.messaging.support</li>
+        <li data-correct="true">org.springframework.integration.support</li>
+        <li>org.springframework.integration.core</li>
+        <li>org.springframework.messaging.core</li>
+      </ul>
+      <p class="quiz-explain">MessagingTemplate is in org.springframework.integration.support (spring-integration-core).</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which MessagingTemplate method creates a temporary anonymous reply channel?</p>
+      <ul class="quiz-options">
+        <li>send(channel, message)</li>
+        <li>receive(channel)</li>
+        <li data-correct="true">sendAndReceive(channel, request)</li>
+        <li>convertAndSend(channel, payload)</li>
+      </ul>
+      <p class="quiz-explain">sendAndReceive creates a temporary PollableChannel, sets it as the replyChannel header, sends the message, and blocks for the reply.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What does MessagingTemplate.send() return when the message is delivered successfully?</p>
+      <ul class="quiz-options">
+        <li>The reply Message</li>
+        <li data-correct="true">true</li>
+        <li>void — it doesn't return a value</li>
+        <li>The correlation ID</li>
+      </ul>
+      <p class="quiz-explain">send() returns a boolean — true on successful delivery, false on timeout.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What does MessagingTemplate.receive() return when the queue is empty and the timeout expires?</p>
+      <ul class="quiz-options">
+        <li>An empty Message with a null payload</li>
+        <li data-correct="true">null</li>
+        <li>false</li>
+        <li>It throws an exception</li>
+      </ul>
+      <p class="quiz-explain">receive() returns null when no message is available within the receiveTimeout. It does not throw.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What is the default value of sendTimeout and receiveTimeout?</p>
+      <ul class="quiz-options">
+        <li>5000 (5 seconds)</li>
+        <li>1000 (1 second)</li>
+        <li>0 (non-blocking)</li>
+        <li data-correct="true">-1 (block forever)</li>
+      </ul>
+      <p class="quiz-explain">Both default to -1, meaning the template blocks indefinitely. Always set explicit timeouts in production code.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">How does the handler in a sendAndReceive flow send its reply back?</p>
+      <ul class="quiz-options">
+        <li>It calls template.send() on a known output channel</li>
+        <li data-correct="true">It sends to the channel stored in the replyChannel header</li>
+        <li>It returns the value from the handler method</li>
+        <li>It publishes to the global error channel</li>
+      </ul>
+      <p class="quiz-explain">The handler extracts the replyChannel header from the incoming message and sends the reply there. This is the return address EIP.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Which channel sub-interface does receive() require?</p>
+      <ul class="quiz-options">
+        <li>SubscribableChannel</li>
+        <li>MessageChannel</li>
+        <li data-correct="true">PollableChannel</li>
+        <li>DirectChannel</li>
+      </ul>
+      <p class="quiz-explain">receive() requires a PollableChannel because you can only pull messages from a pollable (queue-backed) channel. Sending works with any MessageChannel.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">What EIP concept does sendAndReceive's temporary channel mechanism implement?</p>
+      <ul class="quiz-options">
+        <li>Wire Tap</li>
+        <li>Message Filter</li>
+        <li>Content Enricher</li>
+        <li data-correct="true">Return Address</li>
+      </ul>
+      <p class="quiz-explain">The temporary anonymous reply channel is the Return Address EIP — the sender tells the receiver where to send the reply via a header.</p>
+    </div>
+
+    <div class="quiz" data-quiz>
+      <p class="quiz-q">Can you use MessagingTemplate.send() with a PollableChannel?</p>
+      <ul class="quiz-options">
+        <li data-correct="true">Yes — send() accepts any MessageChannel</li>
+        <li>No — send() only works with SubscribableChannel</li>
+        <li>Only if a poller is configured</li>
+        <li>Only with QueueChannel, not PriorityChannel</li>
+      </ul>
+      <p class="quiz-explain">send() accepts any MessageChannel (the root interface), including PollableChannels. It's receive() that is restricted to PollableChannel.</p>
+    </div>
+
+    <p><strong>Written recall (say it out loud):</strong> Without looking back at the lesson, name the three core MessagingTemplate methods, what each returns, and what channel type each requires. Then explain what happens inside sendAndReceive step by step.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <a href="0006-channel-interceptors.html">← Previous: Channel Interceptors</a>
+    <a href="0008-message-channel-configuration.html">Next lesson → Configuring Message Channels</a>
+  </div>
+
+  <div class="reminder">
+    <strong>Reminder:</strong> I'm your teacher for this track. If any of this is fuzzy, ask a followup in chat before moving to Lesson 0008.
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>
